@@ -71,7 +71,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "logout":
         print(auth.logout())
     elif len(sys.argv) != 3:
-        print("Usage: python main.py [username] [password]")
+        print("Usage: python main.py <username> <password>")
         print("Use python main.py logout to logout")
         sys.exit(1)
     elif auth.is_online():
