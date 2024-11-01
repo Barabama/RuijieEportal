@@ -1,0 +1,4 @@
+# requirements
+
+requests
+gmpy2
