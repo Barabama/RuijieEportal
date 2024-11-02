@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
+
 # -*- coding: utf-8 -*-
 # main.py
 
 import re
 import sys
-
+from urllib.parse import urlparse, parse_qs
 import requests
 import gmpy2
 
@@ -34,23 +34,32 @@ class Authenticator:
         return "success" in resp.url
 
     def logout(self) -> dict:
-        redirect_resp = self.session.get(f"{self.url}/redirectortosuccess.jsp")
-        user_index = re.search(r"userIndex=(.+?)&", redirect_resp.text).group()
-        logout_url = f"{self.url}/eportal/InterFace.do?method=logout"
-        resp = self.session.post(logout_url, data={"userIndex": user_index})
+        resp_head = self.session.head(f"{self.url}/eportal/redirectortosuccess.jsp")
+        print(resp_head)
+        match = re.search(r"userIndex=(.+?)&", resp_head.text)
+        if not match:
+            return {"result": "error", "message": "userIndex not found"}
+        resp = self.session.post(f"{self.url}/eportal/InterFace.do?method=logout",
+                                 data={"userIndex": match.group(1)})
         return resp.json()
 
     def login(self, user: str, passwd: str) -> dict:
-        redirect_url = self.session.get(self.url).text.split("'")[1]
-        query_str = redirect_url.split("?")[1]
+        redirect_text = self.session.get(f"{self.url}/eportal/index.jsp").text
+        print(redirect_text)
+        match = re.search(r"redirectUrl=(.+?)&", redirect_text)
+        if not match:
+            return {"result": "error", "message": "redirectUrl not found"}
+        query_str = urlparse(match.group(1)).query
 
+        # Get RSA public key
         page_info = self.session.post(f"{self.url}/eportal/InterFace.do?method=pageInfo",
                                       data={"queryString": query_str}).json()
+        print(page_info)
         rsa_e = int(page_info["publicKeyExponent"], 16)
         rsa_n = int(page_info["publicKeyModulus"], 16)
 
-        mac_str = re.search(r"mac=(.+?)&", query_str).group()
-        secret = f"{passwd}>{mac_str}"
+        # Encrypt password
+        secret = f"{passwd}>{parse_qs(query_str)['mac']}"
         encrypted_pwd = _encrypt_password(secret, rsa_e, rsa_n)
 
         resp = self.session.post(f"{self.url}/eportal/InterFace.do?method=login",
@@ -72,10 +81,10 @@ if __name__ == "__main__":
         print(auth.logout())
     elif len(sys.argv) != 3:
         print("Usage: python main.py <username> <password>")
-        print("Use python main.py logout to logout")
+        print("If you want to logout, use: python main.py logout")
         sys.exit(1)
     elif auth.is_online():
-        print("Already logged in")
+        print("You are already online!")
         sys.exit(0)
     else:
         print(auth.login(sys.argv[1], sys.argv[2]))
