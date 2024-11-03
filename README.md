@@ -3,14 +3,16 @@
 FZU Ruijie ePortal Web Authentication Tool
 
 提供了基于Python和Bash的脚本，锐捷认证现在要求Post请求加密后的密码，RSA加密依赖`gmp`实现，
-其中Python脚本空间要求更高，
-
+其中Python脚本空间要求更高。
 
 ## 使用说明
 
 - Bash依赖`curl`、`sed`、`awk`、`libgmp-dev`。
 
 ```shell
+# compile c
+gcc rsa_encrypt.c -o rsa_encrypt -lgmp
+
 # login
 bash ./web_hust.sh $username $password
 

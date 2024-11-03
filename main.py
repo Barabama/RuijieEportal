@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # main.py
 
@@ -9,17 +9,18 @@ import requests
 import gmpy2
 
 
-def _encrypt_password(secret: str, rsa_e: int, rsa_n: int) -> str:
+def _encrypt_password(secret: str, rsa_e: str, rsa_n: str) -> str:
     secret_int = int.from_bytes(secret.encode(), "big")
-    encrypted_int = gmpy2.powmod(secret_int, rsa_e, rsa_n)
+    encrypted_int = gmpy2.powmod(secret_int, int(rsa_e, 16), int(rsa_n, 16))
     return hex(encrypted_int)[2:]
 
 
 class Authenticator:
 
     def __init__(self):
-        self.ip = "59.77.227.53"  # Change to your school's IP
+        self.ip = "59.77.227.227"  # Change to your school's IP
         self.url = f"http://{self.ip}"
+        self.eportal_url = f"{self.url}/eportal"
         self.session = requests.Session()
         self.session.headers = {
             "Host": self.ip,
@@ -34,37 +35,38 @@ class Authenticator:
         return "success" in resp.url
 
     def logout(self) -> dict:
-        resp_head = self.session.head(f"{self.url}/eportal/redirectortosuccess.jsp")
-        print(resp_head)
-        match = re.search(r"userIndex=(.+?)&", resp_head.text)
-        if not match:
-            return {"result": "error", "message": "userIndex not found"}
-        resp = self.session.post(f"{self.url}/eportal/InterFace.do?method=logout",
-                                 data={"userIndex": match.group(1)})
+        resp = self.session.get(f"{self.eportal_url}/redirectortosuccess.jsp")
+        # print(f"redirectURL: {resp.url}")
+        user_index = re.search(r"userIndex=([^&]+)", resp.url).group(1)
+        # print(f"userIndex: {user_index}")
+        resp = self.session.post(f"{self.eportal_url}/InterFace.do?method=logout",
+                                 data={"userIndex": user_index})
         return resp.json()
 
     def login(self, user: str, passwd: str) -> dict:
-        redirect_text = self.session.get(f"{self.url}/eportal/index.jsp").text
-        print(redirect_text)
-        match = re.search(r"redirectUrl=(.+?)&", redirect_text)
-        if not match:
-            return {"result": "error", "message": "redirectUrl not found"}
-        query_str = urlparse(match.group(1)).query
-
+        redirect_text = self.session.get(self.url).text
+        # print(f"redirectText: {redirect_text}")
+        redirect_url = re.search(r"href='([^']+)", redirect_text).group(1)
+        # print(f"redirectURL: {redirect_url}")
+        self.session.headers["Referer"] = redirect_url
+        query_str = urlparse(redirect_url).query
+        # print(f"querySring: {query_str}")
         # Get RSA public key
-        page_info = self.session.post(f"{self.url}/eportal/InterFace.do?method=pageInfo",
+        page_info = self.session.post(f"{self.eportal_url}/InterFace.do?method=pageInfo",
                                       data={"queryString": query_str}).json()
-        print(page_info)
-        rsa_e = int(page_info["publicKeyExponent"], 16)
-        rsa_n = int(page_info["publicKeyModulus"], 16)
-
+        self.session.cookies.get_dict()
+        rsa_e = page_info["publicKeyExponent"]
+        rsa_n = page_info["publicKeyModulus"]
+        # print(f"rsaE: {rsa_e}, rsaN: {rsa_n}")
         # Encrypt password
-        secret = f"{passwd}>{parse_qs(query_str)['mac']}"
-        encrypted_pwd = _encrypt_password(secret, rsa_e, rsa_n)
-
-        resp = self.session.post(f"{self.url}/eportal/InterFace.do?method=login",
+        secret = f"{passwd}>{parse_qs(query_str)['mac'][0]}"
+        # print(f"secret: {secret}")
+        password = _encrypt_password(secret, rsa_e, rsa_n)
+        # password = passwd # Password Unencrypted
+        # print(f"password: {password}")
+        resp = self.session.post(f"{self.eportal_url}/InterFace.do?method=login",
                                  data={"userId": user,
-                                       "password": encrypted_pwd,
+                                       "password": password,
                                        "service": "",
                                        "queryString": query_str,
                                        "operatorPwd": "",
@@ -88,3 +90,5 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         print(auth.login(sys.argv[1], sys.argv[2]))
+
+    auth.session.close()
