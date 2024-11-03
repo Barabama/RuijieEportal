@@ -20,7 +20,7 @@ check_online() {
 logout_user() {
   resp_header=$(curl -s -A "$UA" -I "$EPORTAL_URL/redirectortosuccess.jsp")
   # echo "respHeader: $resp_header"
-  user_index=$(echo "$resp_header" | grep -oP 'userIndex=\K[^&\r\n]*')
+  user_index=$(echo "$resp_header" | grep -o 'userIndex=[^&]*' | cut -d '=' -f 2)
   # echo "userIndex: $user_index"
   logout_result=$(curl -s -A "$UA" -d "userIndex=$user_index" "$EPORTAL_URL/InterFace.do?method=logout")
   echo "$logout_result"
@@ -28,21 +28,21 @@ logout_user() {
 
 # Handle login requests
 login_user() {
-  redirect_url=$(curl -s -L "$STATUS_URL" | grep -oP "href=\'\K[^']*")
+  redirect_url=$(curl -s -L "$STATUS_URL" | grep -o "href='[^']*" | cut -d "'" -f 2)
   # echo "redirectURL: $redirect_url"
-  query_string=$(echo "$redirect_url" | grep -oP "index.jsp\?\K[^'\r\n]*")
+  query_string=$(echo "$redirect_url" | grep -o "index.jsp?[^']*" | cut -d '?' -f 2)
   query_string=$(echo "$query_string" | sed -e 's/=/%253D/g; s/&/%2526/g')
   # echo "queryString: $query_string"
 
   # Get RSA public key
   page_info=$(curl -s -A "$UA" -c cookies.txt \
     -d "queryString=$query_string" "$EPORTAL_URL/InterFace.do?method=pageInfo")
-  rsa_e=$(echo "$page_info" | grep -oP '"publicKeyExponent":"\K[^"]*')
-  rsa_n=$(echo "$page_info" | grep -oP '"publicKeyModulus":"\K[^"]*')
+  rsa_e=$(echo "$page_info" | grep -o '"publicKeyExponent":"[^"]*' | cut -d '"' -f 4)
+  rsa_n=$(echo "$page_info" | grep -o '"publicKeyModulus":"[^"]*' | cut -d '"' -f 4)
   # echo "rsa_e: $rsa_e, rsa_n: $rsa_n"
 
   # Encrypt password
-  mac=$(echo "$redirect_url" | grep -oP '&mac=\K[^&]*')
+  mac=$(echo "$redirect_url" | grep -o '&mac=[^&]*' | cut -d '=' -f 2)
   # echo "secret: $2>$mac"
   password=$(./rsa_encrypt "$2>$mac" "$rsa_e" "$rsa_n")
   # password=$2 # Password Unencrypted
