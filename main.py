@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 # main.py
 
+import argparse
+import json
+import os
 import re
 import sys
 from urllib.parse import urlparse, parse_qs
@@ -21,6 +24,7 @@ class Authenticator:
         self.ip = "59.77.227.227"  # Change to your school's IP
         self.url = f"http://{self.ip}"
         self.eportal_url = f"{self.url}/eportal"
+        self.cfg = os.path.join(os.getcwd(), "config.json")
         self.session = requests.Session()
         self.session.headers = {
             "Host": self.ip,
@@ -29,6 +33,9 @@ class Authenticator:
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/112.0.0.0",
         }
+
+    def __del__(self):
+        self.session.close()
 
     def is_online(self) -> bool:
         resp = self.session.get(self.url)
@@ -43,7 +50,7 @@ class Authenticator:
                                  data={"userIndex": user_index})
         return resp.json()
 
-    def login(self, user: str, passwd: str) -> dict:
+    def login(self, username: str, password: str, encrypt: bool) -> dict:
         redirect_text = self.session.get(self.url).text
         # print(f"redirectText: {redirect_text}")
         redirect_url = re.search(r"href='([^']+)", redirect_text).group(1)
@@ -59,36 +66,75 @@ class Authenticator:
         rsa_n = page_info["publicKeyModulus"]
         # print(f"rsaE: {rsa_e}, rsaN: {rsa_n}")
         # Encrypt password
-        secret = f"{passwd}>{parse_qs(query_str)['mac'][0]}"
+        secret = f"{password}>{parse_qs(query_str)['mac'][0]}"
         # print(f"secret: {secret}")
-        password = _encrypt_password(secret, rsa_e, rsa_n)
-        # password = passwd # Password Unencrypted
+        password = _encrypt_password(secret, rsa_e, rsa_n) if encrypt else password
         # print(f"password: {password}")
         resp = self.session.post(f"{self.eportal_url}/InterFace.do?method=login",
-                                 data={"userId": user,
+                                 data={"userId": username,
                                        "password": password,
                                        "service": "",
                                        "queryString": query_str,
                                        "operatorPwd": "",
                                        "operatorUserId": "",
                                        "validcode": "",
-                                       "passwordEncrypt": "true", })
+                                       "passwordEncrypt": "true" if encrypt else "false"})
+        res = resp.json()
+        res["password"] = password
+        return res
 
-        return resp.json()
+    def save_config(self, username: str, password: str, encrypt: bool):
+        config = {
+            "username": username,
+            "password": password,
+            "encrypt": encrypt
+        }
+        with open(self.cfg, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4)
+
+    def load_config(self):
+        if not os.path.exists(self.cfg):
+            return
+        with open(self.cfg, "r", encoding="utf-8") as f:
+            return json.load(f)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Eportal Web Authenticator")
+    parser.add_argument("action", choices=["login", "logout"], help="login or logout")
+    parser.add_argument("-u", "--username", help="user name for login")
+    parser.add_argument("-p", "--password", help="password for login")
+    parser.add_argument("-e", "--encrypt", action="store_true", help="encrypt password")
+    parser.add_argument("-c", "--cachecfg", action="store_true", help="save configuration to file")
+    args = parser.parse_args()
     auth = Authenticator()
-    if len(sys.argv) == 2 and sys.argv[1] == "logout":
+
+    if args.action == "logout":
         print(auth.logout())
-    elif len(sys.argv) != 3:
-        print("Usage: python main.py <username> <password>")
-        print("If you want to logout, use: python main.py logout")
-        sys.exit(1)
+
     elif auth.is_online():
         print("You are already online!")
-        sys.exit(0)
-    else:
-        print(auth.login(sys.argv[1], sys.argv[2]))
 
-    auth.session.close()
+    elif args.action == "login":
+        if not args.username or not args.password:
+            if config := auth.load_config():
+                print("Loaded configuration from config.json")
+                print(auth.login(**config))
+            else:
+                print("No configuration found.")
+                print("Usage: python main.py login -u <username> -p <password> -c")
+
+        else:
+            res = auth.login(args.username, args.password, args.encrypt)
+            print(res)
+            if res["result"] == "success" and args.cachecfg:
+                print("Saved configuration to config.json")
+                config = {
+                    "username": args.username,
+                    "password": res["password"],
+                    "encrypt": args.encrypt
+                }
+                auth.save_config(**config)
+
+    else:
+        print("Invalid action. Use 'login' or 'logout'.")
