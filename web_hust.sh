@@ -44,7 +44,7 @@ login_user() {
   # Encrypt password
   mac=$(echo "$redirect_url" | grep -o '&mac=[^&]*' | cut -d '=' -f 2)
   # echo "secret: $2>$mac"
-  password=$(./rsa_encrypt "$2>$mac" "$rsa_e" "$rsa_n")
+  password=$(./encrypt "$2>$mac" "$rsa_e" "$rsa_n")
   # password=$2 # Password Unencrypted
   # echo "password: $password"
 

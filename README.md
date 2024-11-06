@@ -1,4 +1,4 @@
-# 南方小清华锐捷校园网认证脚本
+# 锐捷校园网网页认证脚本
 
 FZU Ruijie ePortal Web Authentication Tool
 
@@ -13,33 +13,59 @@ Python空间需求大于40MB。
 
 ## 使用说明
 
-- Shell依赖`curl`、`sed`、`libgmp-dev`。
+### Python
+
+- 安装Python3，并安装依赖库`requests`、`gmpy2`
 
 ```shell
-# compile c
-gcc rsa_encrypt.c -o rsa_encrypt -lgmp
+apt install python3 python3-pip
+pip3 install requests gmpy2
+```
+
+- 运行脚本
+
+```shell
+# login
+python main.py login [-u USER] [-p PASSWORD] [-e] [-c]
+# logout
+python main.py logout
+```
+
+### Shell
+
+- （交叉）编译`encrypt.c`（选做）
+
+```shell
+# compile c for x86
+gcc encrypt.c -o encrypt -lgmp
+
+# cross compile c for mipsel
+sudo apt install m4 mipsel-linux-gnu-gcc && cd /tmp
+wget https://gmplib.org/download/gmp/gmp-x.x.x.tar.xz # choose your version
+tar -Jxvf gmp-x.x.x.tar.xz && cd gmp-x.x.x
+./configure --host=mipsel-linux-gnu --prefix=/usr/mipsel
+make && sudo make install
+
+mipsel-linux-gnu-gcc encrypt.c -o encrypt -L/usr/mipsel/lib -I/usr/mipsel/include -lgmp
+```
+
+- 运行脚本
+
+```shell
 # login
 bash ./web_hust.sh $username $password
 # logout
 bash ./web_hust.sh logout 
 ```
 
-- Python依赖`requests`、`gmpy2`。
+## 结果
 
-```shell
-# login
-python main.py $username $password
-# logout
-python main.py logout
-```
+- Python在x86（Windows/Linux）和mipsle（OpenWRT）上测均试通过。
+- Shell在x86（Windows/Linux）在上测试通过。
+- Shell在mipsle（OpenWRT）上无法使用`encrypt`，原因是缺少`ld.so.1`。
 
-## 结果与改进
+## 改进
 
-- Python与Shell在x86（Windows/Linux）上测均试通过。
-- Python在mipsle（OpenWRT）上测试通过。
-- mipsle（OpenWRT）无法使用二进制文件加密密码，也无法安装`libgmp-dev`进行编译，测试未通过。
-
-- 添加可选择的密码加密功能。
 - 解决mipsle（OpenWRT）无法加密密码的问题。
 
 ## 更多

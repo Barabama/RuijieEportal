@@ -1,7 +1,7 @@
 // rsa_encrypt.c
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
+// #include <stdlib.h>
 #include <gmp.h>
 
 void encrypt_password(const char *secret, const char *e_hex, const char *n_hex, char *encrypted_hex)
