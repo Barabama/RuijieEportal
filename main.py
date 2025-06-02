@@ -4,12 +4,15 @@
 
 import argparse
 import json
+import logging
 import os
 import re
-import sys
 from urllib.parse import urlparse, parse_qs
+
 import requests
 import gmpy2
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 def _encrypt_password(secret: str, rsa_e: str, rsa_n: str) -> str:
@@ -21,7 +24,7 @@ def _encrypt_password(secret: str, rsa_e: str, rsa_n: str) -> str:
 class Authenticator:
 
     def __init__(self):
-        self.ip = "59.77.227.227"  # Change to your school's IP
+        self.ip = "172.16.0.46"  # Change to your school's IP
         self.url = f"http://{self.ip}"
         self.eportal_url = f"{self.url}/eportal"
         self.cfg = os.path.join(os.getcwd(), "config.json")
@@ -43,52 +46,58 @@ class Authenticator:
 
     def logout(self) -> dict:
         resp = self.session.get(f"{self.eportal_url}/redirectortosuccess.jsp")
-        # print(f"redirectURL: {resp.url}")
-        user_index = re.search(r"userIndex=([^&]+)", resp.url).group(1)
-        # print(f"userIndex: {user_index}")
+        logging.info(f"redirectURL: {resp.url}")
+
+        if match := re.search(r"userIndex=([^&]+)", resp.url):
+            user_idx = match.group(1)
+            logging.info(f"userIndex: {user_idx}")
+        else:
+            raise RuntimeError(f"Dismatch userIndex in {resp.url}")
+
         resp = self.session.post(f"{self.eportal_url}/InterFace.do?method=logout",
-                                 data={"userIndex": user_index})
+                                 data={"userIndex": user_idx})
         return resp.json()
 
     def login(self, username: str, password: str, encrypt: bool) -> dict:
         redirect_text = self.session.get(self.url).text
-        # print(f"redirectText: {redirect_text}")
-        redirect_url = re.search(r"href='([^']+)", redirect_text).group(1)
-        # print(f"redirectURL: {redirect_url}")
+        logging.info(f"redirectText: {redirect_text}")
+
+        if match := re.search(r"href='([^']+)", redirect_text):
+            redirect_url = match.group(1)
+            logging.info(f"redirectURL: {redirect_url}")
+        else:
+            raise RuntimeError(f"Dismatch redirectURL in {redirect_text}")
+
         self.session.headers["Referer"] = redirect_url
         query_str = urlparse(redirect_url).query
-        # print(f"querySring: {query_str}")
+        logging.info(f"querySring: {query_str}")
+
         # Get RSA public key
         page_info = self.session.post(f"{self.eportal_url}/InterFace.do?method=pageInfo",
                                       data={"queryString": query_str}).json()
         self.session.cookies.get_dict()
         rsa_e = page_info["publicKeyExponent"]
         rsa_n = page_info["publicKeyModulus"]
-        # print(f"rsaE: {rsa_e}, rsaN: {rsa_n}")
+        logging.debug(f"rsaE: {rsa_e}, rsaN: {rsa_n}")
+
         # Encrypt password
         secret = f"{password}>{parse_qs(query_str)['mac'][0]}"
-        # print(f"secret: {secret}")
+        logging.debug(f"secret: {secret}")
         password = _encrypt_password(secret, rsa_e, rsa_n) if encrypt else password
-        # print(f"password: {password}")
-        resp = self.session.post(f"{self.eportal_url}/InterFace.do?method=login",
-                                 data={"userId": username,
-                                       "password": password,
-                                       "service": "",
-                                       "queryString": query_str,
-                                       "operatorPwd": "",
-                                       "operatorUserId": "",
-                                       "validcode": "",
-                                       "passwordEncrypt": "true" if encrypt else "false"})
+        logging.debug(f"password: {password}")
+
+        resp = self.session.post(
+            f"{self.eportal_url}/InterFace.do?method=login",
+            data={"userId": username, "password": password, "service": "",
+                  "queryString": query_str, "operatorPwd": "", "operatorUserId": "",
+                  "validcode": "", "passwordEncrypt": "true" if encrypt else "false"}
+        )
         res = resp.json()
         res["password"] = password
         return res
 
     def save_config(self, username: str, password: str, encrypt: bool):
-        config = {
-            "username": username,
-            "password": password,
-            "encrypt": encrypt
-        }
+        config = {"username": username, "password": password, "encrypt": encrypt}
         with open(self.cfg, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
 
@@ -110,31 +119,28 @@ if __name__ == "__main__":
     auth = Authenticator()
 
     if args.action == "logout":
-        print(auth.logout())
+        logging.info(f"LogoutResult: {auth.logout()}")
 
     elif auth.is_online():
-        print("You are already online!")
+        logging.info("You are already online!")
 
     elif args.action == "login":
         if not args.username or not args.password:
             if config := auth.load_config():
-                print("Loaded configuration from config.json")
-                print(auth.login(**config))
+                logging.info("Loaded configuration from config.json")
+                logging.info(f"LoginResult: {auth.login(**config)}")
             else:
-                print("No configuration found.")
-                print("Usage: python main.py login -u <username> -p <password> -c")
+                logging.warning("No configuration found.")
+                logging.info("Usage: python main.py login -u <username> -p <password> -c")
 
         else:
             res = auth.login(args.username, args.password, args.encrypt)
-            print(res)
+            logging.info(f"LoginResult: {res}")
             if res["result"] == "success" and args.cachecfg:
-                print("Saved configuration to config.json")
-                config = {
-                    "username": args.username,
-                    "password": res["password"],
-                    "encrypt": args.encrypt
-                }
+                logging.info("Saved configuration to config.json")
+                config = {"username": args.username, "password": res["password"],
+                          "encrypt": args.encrypt}
                 auth.save_config(**config)
 
     else:
-        print("Invalid action. Use 'login' or 'logout'.")
+        logging.error("Invalid action. Use 'login' or 'logout'.")
