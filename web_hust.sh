@@ -6,6 +6,7 @@ IP="172.16.0.46" # Change to your school's IP
 EPORTAL_URL="http://$IP/eportal"
 STATUS_URL="http://connect.rom.miui.com/generate_204"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/112.0.0.0"
+ENCRYPTION="./encrypt_mipsel" # Change to your encryption path
 
 # Check if online
 check_online() {
@@ -44,7 +45,7 @@ login_user() {
   # Encrypt password
   mac=$(echo "$redirect_url" | grep -o '&mac=[^&]*' | cut -d '=' -f 2)
   echo "secret: $2>$mac"
-  password=$(./encrypt "$2>$mac" "$rsa_e" "$rsa_n")
+  password=$($ENCRYPTION "$2>$mac" "$rsa_e" "$rsa_n")
   # password=$2 # Password Unencrypted
   echo "password: $password"
 
