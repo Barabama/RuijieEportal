@@ -1,8 +1,8 @@
 #!/bin/sh
 # Modified by sunbk201
 
-opkg update
-opkg install curl libcurl luci-compat
+# opkg update
+# opkg install curl libcurl luci-compat
 
 getcpucore() {
     cputype=$(uname -ms | tr ' ' '_' | tr '[A-Z]' '[a-z]')
@@ -39,11 +39,11 @@ ck_ua3f_log() {
 }
 
 dl_ua3f() {
-    wget https://cdn.jsdelivr.net/gh/SunBK201/UA3F@master/
-    if [ $? -ne 0 ]; then
-        echo "Download UA3F Failed, Please Retry."
-        exit 1
-    fi
+    # wget https://blog.sunbk201.site/cdn/bin/$ua3f_tar
+    # if [ $? -ne 0 ]; then
+    #     echo "Download UA3F Failed, Please Retry."
+    #     exit 1
+    # fi
 
     wget https://cdn.jsdelivr.net/gh/SunBK201/UA3F@master/openwrt/files/ua3f.init
     if [ $? -ne 0 ]; then
@@ -112,9 +112,9 @@ if ! command -v sudo >/dev/null 2>&1; then
 fi
 
 ck_ua3f_log
-if [ -f "$ua3f_tar" ]; then
-    rm "$ua3f_tar"
-fi
+# if [ -f "$ua3f_tar" ]; then
+#     rm "$ua3f_tar"
+# fi
 dl_ua3f
 clean_ua3f
 install_ua3f
