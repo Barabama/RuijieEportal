@@ -83,10 +83,11 @@ bash ./web_hust.sh logout
 
 ## 更多
 
-[基于OpenWRT路由器的校园网突破设备限制实践总结](校园网路由器.md)
+[基于OpenWRT路由器的校园网突破设备限制实践总结](docs/校园网路由器.md)
 
 ## 参考引用
 
 - [SWUOSA/ruijie-authentication: 西南大学校园网自动登录脚本, 基于Python](https://github.com/SWUOSA/ruijie-authentication)
 - [ehxu/Ruijie_JMU: 锐捷 ePortal Web 认证自动登录脚本 (Linux & Windows) ](https://github.com/ehxu/Ruijie_JMU)
 - [callmeliwen/RuijiePortalLoginTool: 集美大学锐捷 ePortal Web 认证自动登录脚本](https://github.com/callmeliwen/RuijiePortalLoginTool)
+
