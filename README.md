@@ -26,6 +26,14 @@ pip3 install requests gmpy2
 
 手动修改`main.py`中的校园IP.
 
+```python
+class Authenticator:
+    def __init__(self):
+        self.ip = "172.16.0.46"  # Change to your school's IP
+```
+
+运行脚本
+
 ```shell
 # login
 python main.py login -u $USER -p $PASSWORD -e -c
@@ -65,8 +73,16 @@ make clean && make -j$(nproc) && make install
 手动修改`web_hust.sh`中的校园IP和加密文件路径.
 
 ```shell
+# src/web_hust.sh
+IP="172.16.0.46" # Change to your school's IP
+ENCRYPTION="../dist/encrypt_mipsel" # Change to your encryption path
+```
+
+运行脚本
+
+```shell
 # login
-bash ./web_hust.sh $username $password
+bash ./web_hust.sh $USER $PASSWORD
 # logout
 bash ./web_hust.sh logout 
 ```
