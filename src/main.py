@@ -12,13 +12,20 @@ from urllib.parse import urlparse, parse_qs
 import requests
 import gmpy2
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 
 def _encrypt_password(secret: str, rsa_e: str, rsa_n: str) -> str:
+    # Convert secret to integer, perform modular exponentiation and
+    # return a hex string padded with leading zeros to match modulus length.
     secret_int = int.from_bytes(secret.encode(), "big")
     encrypted_int = gmpy2.powmod(secret_int, int(rsa_e, 16), int(rsa_n, 16))
-    return hex(encrypted_int)[2:]
+    hexstr = format(int(encrypted_int), "x")
+    # rsa_n is a hex string; modulus byte length = ceil(len(rsa_n_hex)/2)
+    mod_bytes = (len(rsa_n) + 1) // 2
+    return hexstr.rjust(mod_bytes * 2, "0")
 
 
 class Authenticator:
@@ -54,8 +61,10 @@ class Authenticator:
         else:
             raise RuntimeError(f"Dismatch userIndex in {resp.url}")
 
-        resp = self.session.post(f"{self.eportal_url}/InterFace.do?method=logout",
-                                 data={"userIndex": user_idx})
+        resp = self.session.post(
+            f"{self.eportal_url}/InterFace.do?method=logout",
+            data={"userIndex": user_idx},
+        )
         return resp.json()
 
     def login(self, username: str, password: str, encrypt: bool) -> dict:
@@ -73,24 +82,45 @@ class Authenticator:
         logging.info(f"querySring: {query_str}")
 
         # Get RSA public key
-        page_info = self.session.post(f"{self.eportal_url}/InterFace.do?method=pageInfo",
-                                      data={"queryString": query_str}).json()
-        self.session.cookies.get_dict()
+        page_info = self.session.post(
+            f"{self.eportal_url}/InterFace.do?method=pageInfo",
+            data={"queryString": query_str},
+        ).json()
+        cookies = self.session.cookies.get_dict()
+        logging.info(f"Cookies: {cookies}")
         rsa_e = page_info["publicKeyExponent"]
         rsa_n = page_info["publicKeyModulus"]
         logging.debug(f"rsaE: {rsa_e}, rsaN: {rsa_n}")
 
         # Encrypt password
-        secret = f"{password}>{parse_qs(query_str)['mac'][0]}"
+        mac = parse_qs(query_str)["mac"][0]
+        secret = f"{password}>{mac}"
         logging.debug(f"secret: {secret}")
         password = _encrypt_password(secret, rsa_e, rsa_n) if encrypt else password
         logging.debug(f"password: {password}")
 
+        # Ensure we send all needed headers
+        self.session.headers.update(
+            {
+                "Referer": redirect_url,
+                "Accept-Encoding": "gzip, deflate",
+                "Connection": "keep-alive",
+                "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+            }
+        )
+
         resp = self.session.post(
             f"{self.eportal_url}/InterFace.do?method=login",
-            data={"userId": username, "password": password, "service": "",
-                  "queryString": query_str, "operatorPwd": "", "operatorUserId": "",
-                  "validcode": "", "passwordEncrypt": "true" if encrypt else "false"}
+            data={
+                "userId": username,
+                "password": password,
+                "service": "",
+                "queryString": query_str,
+                "operatorPwd": "",
+                "operatorUserId": "",
+                "validcode": "",
+                "passwordEncrypt": "true" if encrypt else "false",
+            },
         )
         res = resp.json()
         res["password"] = password
@@ -114,7 +144,9 @@ if __name__ == "__main__":
     parser.add_argument("-u", "--username", help="user name for login")
     parser.add_argument("-p", "--password", help="password for login")
     parser.add_argument("-e", "--encrypt", action="store_true", help="encrypt password")
-    parser.add_argument("-c", "--cachecfg", action="store_true", help="save configuration to file")
+    parser.add_argument(
+        "-c", "--cachecfg", action="store_true", help="save configuration to file"
+    )
     args = parser.parse_args()
     auth = Authenticator()
 
@@ -131,15 +163,20 @@ if __name__ == "__main__":
                 logging.info(f"LoginResult: {auth.login(**config)}")
             else:
                 logging.warning("No configuration found.")
-                logging.info("Usage: python main.py login -u <username> -p <password> -c")
+                logging.info(
+                    "Usage: python main.py login -u <username> -p <password> -c"
+                )
 
         else:
             res = auth.login(args.username, args.password, args.encrypt)
             logging.info(f"LoginResult: {res}")
             if res["result"] == "success" and args.cachecfg:
                 logging.info("Saved configuration to config.json")
-                config = {"username": args.username, "password": res["password"],
-                          "encrypt": args.encrypt}
+                config = {
+                    "username": args.username,
+                    "password": res["password"],
+                    "encrypt": args.encrypt,
+                }
                 auth.save_config(**config)
 
     else:

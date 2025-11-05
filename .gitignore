@@ -7,3 +7,5 @@
 test*
 
 config*
+build/*
+tries/*

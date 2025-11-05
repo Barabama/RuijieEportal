@@ -38,6 +38,7 @@ login_user() {
   # Get RSA public key
   page_info=$(curl -s -A "$UA" -c cookies.txt \
     -d "queryString=$query_string" "$EPORTAL_URL/InterFace.do?method=pageInfo")
+  echo "pageInfo: $page_info"
   rsa_e=$(echo "$page_info" | grep -o '"publicKeyExponent":"[^"]*' | cut -d '"' -f 4)
   rsa_n=$(echo "$page_info" | grep -o '"publicKeyModulus":"[^"]*' | cut -d '"' -f 4)
   echo "rsaE: $rsa_e, rsaN: $rsa_n"
@@ -61,6 +62,8 @@ login_user() {
       -H "Host: $IP" \
       -H "Origin: http://$IP" \
       -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" \
+      -H "Accept-Encoding: gzip, deflate" \
+      -H "Accept-Language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7" \
       -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \
       "$EPORTAL_URL/InterFace.do?method=login"
   )
