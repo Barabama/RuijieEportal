@@ -59,7 +59,8 @@ class Authenticator:
             user_idx = match.group(1)
             logging.info(f"userIndex: {user_idx}")
         else:
-            raise RuntimeError(f"Dismatch userIndex in {resp.url}")
+            logging.info("Already logged out or no userIndex found")
+            return {"result": "success", "message": "Already logged out"}
 
         resp = self.session.post(
             f"{self.eportal_url}/InterFace.do?method=logout",

@@ -1,4 +1,4 @@
 # requirements
+# RSA 加密用 Python 内置 pow(), 无需 gmpy2 (路由器可只装 python3 python3-requests)
 
 requests
-gmpy2
