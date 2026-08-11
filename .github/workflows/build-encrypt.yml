@@ -6,8 +6,15 @@ on:
     paths: [src/encrypt.c, src/tommath.c, src/tommath*.h, .github/workflows/build-encrypt.yml]
   workflow_dispatch:
 
+# 工具链来源: cross-tools/musl-cross (GitHub Release 托管, 对 GH runner 可靠)
+# 相比 musl.cc (无 CDN, 并发下载易超时), GitHub→GitHub 传输快且稳定.
+# 版本 tag: 20260515 (crosstool-ng, gcc 16.1.0, musl 1.2.6)
+env:
+  TOOLCHAIN_TAG: 20260515
+  TOOLCHAIN_BASE: https://github.com/cross-tools/musl-cross/releases/download
+
 jobs:
-  # 单独准备任务: 串行下载 5 个工具链(避免并发打爆 musl.cc), 带重试, 缓存跨运行复用.
+  # 单独准备任务: 串行下载 5 个工具链, 缓存跨运行复用.
   toolchains:
     name: Prepare toolchains
     runs-on: ubuntu-latest
@@ -16,31 +23,32 @@ jobs:
         uses: actions/cache@v4
         with:
           path: toolchains
-          key: musl-toolchains-v1
+          key: cross-tools-v1
 
       - name: Download missing toolchains (sequential + retry)
         run: |
           set -e
           mkdir -p toolchains
-          for tc in x86_64-linux-musl-cross aarch64-linux-musl-cross arm-linux-musleabihf-cross mipsel-linux-musl-cross mips-linux-musl-cross; do
+          for tc in x86_64-unknown-linux-musl aarch64-unknown-linux-musl arm-unknown-linux-musleabihf mipsel-unknown-linux-musl mips-unknown-linux-musl; do
             if [ -d "toolchains/$tc" ]; then
               echo "cached: $tc"
               continue
             fi
-            echo "Downloading: $tc (~100MB)"
+            echo "Downloading: $tc (~70MB)"
             ok=0
-            for attempt in 1 2 3 4 5; do
-              if curl -sfL --connect-timeout 15 --max-time 600 --retry 3 --retry-delay 10 -o /tmp/tc.tgz "https://musl.cc/$tc.tgz"; then
-                if tar -tzf /tmp/tc.tgz >/dev/null 2>&1; then
-                  tar -xzf /tmp/tc.tgz -C toolchains/
+            for attempt in 1 2 3; do
+              if curl -sfL --connect-timeout 15 --max-time 600 --retry 3 --retry-delay 10 \
+                  -o /tmp/tc.txz "$TOOLCHAIN_BASE/$TOOLCHAIN_TAG/$tc.tar.xz"; then
+                if tar -tJf /tmp/tc.txz >/dev/null 2>&1; then
+                  tar -xJf /tmp/tc.txz -C toolchains/
                   ok=1
                   break
                 fi
               fi
-              echo "  attempt $attempt failed, retrying in 15s..."
-              sleep 15
+              echo "  attempt $attempt failed, retrying in 10s..."
+              sleep 10
             done
-            [ "$ok" = "1" ] || { echo "ERROR: failed to download $tc after 5 attempts"; exit 1; }
+            [ "$ok" = "1" ] || { echo "ERROR: failed to download $tc"; exit 1; }
           done
           du -sh toolchains
 
@@ -53,19 +61,19 @@ jobs:
       matrix:
         include:
           # ---- x86 ----
-          - {name: x86_64, toolchain: x86_64-linux-musl-cross, gcc: x86_64-linux-musl-gcc, cflags: "", out: "dist/encrypt_x86_64"}
+          - {name: x86_64, toolchain: x86_64-unknown-linux-musl, gcc: x86_64-unknown-linux-musl-gcc, cflags: "", out: "dist/encrypt_x86_64"}
 
           # ---- AArch64: 一份二进制兼容全部 cortex (AArch64 ISA 固定), 复制多份架构名方便用户按 ipk 命名选 ----
-          - {name: aarch64_cortex-a53, toolchain: aarch64-linux-musl-cross, gcc: aarch64-linux-musl-gcc, cflags: "", out: "dist/encrypt_aarch64_cortex-a53 dist/encrypt_aarch64_cortex-a72 dist/encrypt_aarch64_cortex-a76 dist/encrypt_aarch64_generic"}
+          - {name: aarch64_cortex-a53, toolchain: aarch64-unknown-linux-musl, gcc: aarch64-unknown-linux-musl-gcc, cflags: "", out: "dist/encrypt_aarch64_cortex-a53 dist/encrypt_aarch64_cortex-a72 dist/encrypt_aarch64_cortex-a76 dist/encrypt_aarch64_generic"}
 
           # ---- ARMv7 32位: FPU 不同 (vfpv3-d16 vs neon-vfpv4) 必须分别编译; 仅用 -mcpu 隐含 -march ----
-          - {name: arm_cortex-a7_neon-vfpv4, toolchain: arm-linux-musleabihf-cross, gcc: arm-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a7_neon-vfpv4"}
-          - {name: arm_cortex-a15_neon-vfpv4, toolchain: arm-linux-musleabihf-cross, gcc: arm-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a15_neon-vfpv4"}
-          - {name: arm_cortex-a9_vfpv3-d16, toolchain: arm-linux-musleabihf-cross, gcc: arm-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a9_vfpv3-d16"}
+          - {name: arm_cortex-a7_neon-vfpv4, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a7_neon-vfpv4"}
+          - {name: arm_cortex-a15_neon-vfpv4, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a15_neon-vfpv4"}
+          - {name: arm_cortex-a9_vfpv3-d16, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a9_vfpv3-d16"}
 
           # ---- MIPS 24Kc: 大小端各一 ----
-          - {name: mipsel_24kc, toolchain: mipsel-linux-musl-cross, gcc: mipsel-linux-musl-gcc, cflags: "-march=24kc", out: "dist/encrypt_mipsel_24kc"}
-          - {name: mips_24kc, toolchain: mips-linux-musl-cross, gcc: mips-linux-musl-gcc, cflags: "-march=24kc", out: "dist/encrypt_mips_24kc"}
+          - {name: mipsel_24kc, toolchain: mipsel-unknown-linux-musl, gcc: mipsel-unknown-linux-musl-gcc, cflags: "-march=24kc", out: "dist/encrypt_mipsel_24kc"}
+          - {name: mips_24kc, toolchain: mips-unknown-linux-musl, gcc: mips-unknown-linux-musl-gcc, cflags: "-march=24kc", out: "dist/encrypt_mips_24kc"}
 
     steps:
       - uses: actions/checkout@v4
@@ -77,15 +85,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: toolchains
-          key: musl-toolchains-v1
+          key: cross-tools-v1
 
       - name: Fallback download if cache missed
         run: |
           mkdir -p toolchains
           if [ ! -d "toolchains/${{ matrix.toolchain }}" ]; then
             echo "cache miss, downloading: ${{ matrix.toolchain }}"
-            curl -sfL --connect-timeout 15 --max-time 600 --retry 5 --retry-delay 10 -o /tmp/tc.tgz "https://musl.cc/${{ matrix.toolchain }}.tgz"
-            tar -xzf /tmp/tc.tgz -C toolchains/
+            curl -sfL --connect-timeout 15 --max-time 600 --retry 5 --retry-delay 10 -o /tmp/tc.txz "$TOOLCHAIN_BASE/$TOOLCHAIN_TAG/${{ matrix.toolchain }}.tar.xz"
+            tar -xJf /tmp/tc.txz -C toolchains/
           fi
 
       - name: Cross-compile encrypt.c + tommath.c
