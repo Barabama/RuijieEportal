@@ -7,8 +7,46 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 单独准备任务: 串行下载 5 个工具链(避免并发打爆 musl.cc), 带重试, 缓存跨运行复用.
+  toolchains:
+    name: Prepare toolchains
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore musl toolchains (cache)
+        uses: actions/cache@v4
+        with:
+          path: toolchains
+          key: musl-toolchains-v1
+
+      - name: Download missing toolchains (sequential + retry)
+        run: |
+          set -e
+          mkdir -p toolchains
+          for tc in x86_64-linux-musl-cross aarch64-linux-musl-cross arm-linux-musleabihf-cross mipsel-linux-musl-cross mips-linux-musl-cross; do
+            if [ -d "toolchains/$tc" ]; then
+              echo "cached: $tc"
+              continue
+            fi
+            echo "Downloading: $tc (~100MB)"
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              if curl -sfL --connect-timeout 15 --max-time 600 --retry 3 --retry-delay 10 -o /tmp/tc.tgz "https://musl.cc/$tc.tgz"; then
+                if tar -tzf /tmp/tc.tgz >/dev/null 2>&1; then
+                  tar -xzf /tmp/tc.tgz -C toolchains/
+                  ok=1
+                  break
+                fi
+              fi
+              echo "  attempt $attempt failed, retrying in 15s..."
+              sleep 15
+            done
+            [ "$ok" = "1" ] || { echo "ERROR: failed to download $tc after 5 attempts"; exit 1; }
+          done
+          du -sh toolchains
+
   build:
     name: ${{ matrix.name }}
+    needs: toolchains
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -35,26 +73,29 @@ jobs:
       # 注册 binfmt, 使交叉编译产物可直接在 runner 上用 qemu 运行 (冒烟测试用)
       - uses: docker/setup-qemu-action@v3
 
-      - name: Cache toolchain
+      - name: Restore toolchains from cache
         uses: actions/cache@v4
         with:
-          path: ${{ matrix.toolchain }}
-          key: toolchain-${{ matrix.toolchain }}-v1
+          path: toolchains
+          key: musl-toolchains-v1
 
-      - name: Download toolchain if not cached
+      - name: Fallback download if cache missed
         run: |
-          if [ ! -d "${{ matrix.toolchain }}" ]; then
-            curl -sL -o tc.tgz https://musl.cc/${{ matrix.toolchain }}.tgz
-            tar -xzf tc.tgz
+          mkdir -p toolchains
+          if [ ! -d "toolchains/${{ matrix.toolchain }}" ]; then
+            echo "cache miss, downloading: ${{ matrix.toolchain }}"
+            curl -sfL --connect-timeout 15 --max-time 600 --retry 5 --retry-delay 10 -o /tmp/tc.tgz "https://musl.cc/${{ matrix.toolchain }}.tgz"
+            tar -xzf /tmp/tc.tgz -C toolchains/
           fi
 
       - name: Cross-compile encrypt.c + tommath.c
         run: |
           cd src
-          ../${{ matrix.toolchain }}/bin/${{ matrix.gcc }} -static -O2 -no-pie ${{ matrix.cflags }} -o /tmp/encrypt_build encrypt.c tommath.c
+          ../toolchains/${{ matrix.toolchain }}/bin/${{ matrix.gcc }} -static -O2 -no-pie ${{ matrix.cflags }} -o /tmp/encrypt_build encrypt.c tommath.c
           cd ..
           # 产出主文件 + 兼容别名拷贝 (aarch64 一份二进制覆盖全 cortex)
           first="dist/encrypt_${{ matrix.name }}"
+          mkdir -p dist
           cp /tmp/encrypt_build "$first"
           for f in ${{ matrix.out }}; do
             [ "$f" = "$first" ] || cp "$first" "$f"
