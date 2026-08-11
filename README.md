@@ -67,25 +67,66 @@ rm main.zip
 chmod -R 777 RuijieEportal
 ```
 
-- 手动修改`src/web_hust.sh`中的校园IP和加密文件路径.
+- 手动修改`src/rjeportal.sh`中的校园IP和加密文件路径 (自动检测 curl/wget).
 
 ```shell
-# src/web_hust.sh
+# src/rjeportal.sh
 IP="172.16.0.46" # Change to your school's IP
-ENCRYPTION="../dist/encrypt_mipsel" # Change to your encryption path
+ENCRYPTION="$SCRIPT_DIR/../dist/encrypt_mipsel" # 通常无需手动改, 脚本会自动识别架构
+# 也可用环境变量覆盖, 例如 ENCRYPTION=/path/to/encrypt sh rjeportal.sh login ...
 ```
 
+> **自动识别**: `rjeportal.sh` 会根据系统架构自动选择 `dist/` 下对应二进制
+> (读取 `/etc/openwrt_release` 的 `DISTRIB_ARCH`, 回退 `uname -m`):
+> `mipsel_*`→encrypt_mipsel, `aarch64`→encrypt_aarch64, `x86_64`→encrypt_x86.
+> 仅当识别失败或需指定自定义路径时才需手动设置 `ENCRYPTION`.
+
+- **路由器(OpenWrt)上务必安装 curl**: eportal 的 POST 接口对 OpenWrt 自带 uclient-fetch 解析不可靠, 需 `opkg install curl` (实测 uclient-fetch 下 pageInfo 返回空、login 报"用户名不能为空").
 - 运行脚本
 
 ```shell
 cd RujieEportal/src
-# login
-bash ./web_hust.sh $USER $PASSWORD
-# logout
-bash ./web_hust.sh logout 
+chmod +x rjeportal.sh
+# 登录
+sh ./rjeportal.sh login $USER $PASSWORD
+# 登出
+sh ./rjeportal.sh logout
+# 状态
+sh ./rjeportal.sh status
 ```
 
-如果[dist/](./dist/)中没有目标平台编译文件, 请自行编译, [#更多详情](docs/无限制校园网路由器.md)
+### 编译 encrypt 二进制 (libtommath 版, 无需 GMP)
+
+`src/encrypt.c` 基于 **libtommath** (vendored: `src/tommath.c` + 头文件), 不需要 GMP 交叉编译.
+交叉编译只需一个 musl 工具链, 单命令:
+
+```shell
+# 以 mipsel 为例 (工具链从 https://musl.cc 下载)
+curl -sL -o tc.tgz https://musl.cc/mipsel-linux-musl-cross.tgz && tar -xzf tc.tgz
+./mipsel-linux-musl-cross/bin/mipsel-linux-musl-gcc -static -O2 -no-pie -march=24kc -o dist/encrypt_mipsel_24kc src/encrypt.c src/tommath.c
+
+# x86_64 / aarch64 同理, 换对应工具链
+# 本地一键构建全部架构: bash build_all.sh
+```
+
+**GitHub Actions 自动化**: [`.github/workflows/build-encrypt.yml`](.github/workflows/build-encrypt.yml) 已配置
+在 `src/encrypt.c` / `src/tommath*` 变更或 tag 时自动交叉编译 10 个架构文件,
+跑 qemu 冒烟测试(校验输出与基准向量逐字节一致)并上传 artifact / 附加到 Release.
+
+#### dist/ 架构命名 (与 OpenWrt 包架构名一致)
+
+| 二进制 | 对应 OpenWrt 架构 | 说明 |
+| --- | --- | --- |
+| `encrypt_x86_64` | x86_64 | 软路由/PC |
+| `encrypt_aarch64_cortex-a53/a72/a76/generic` | 对应 aarch64 内核 | 同一二进制(ISA 固定), 按 ipk 命名拷贝 |
+| `encrypt_arm_cortex-a7_neon-vfpv4` | arm_cortex-a7_neon-vfpv4 | 需 VFPv4+NEON |
+| `encrypt_arm_cortex-a15_neon-vfpv4` | arm_cortex-a15_neon-vfpv4 | 需 VFPv4+NEON |
+| `encrypt_arm_cortex-a9_vfpv3-d16` | arm_cortex-a9_vfpv3-d16 | 仅 VFPv3 |
+| `encrypt_mipsel_24kc` | mipsel_24kc | MIPS 小端 |
+| `encrypt_mips_24kc` | mips_24kc | MIPS 大端 |
+
+> 注意: ARMv7 三种 FPU 变体**不通用** (neon-vfpv4 二进制无法在仅 vfpv3-d16 的 a9 上运行), 须精确匹配.
+> `rjeportal.sh` 已按 `/etc/openwrt_release` 的 `DISTRIB_ARCH` 自动识别并选择对应文件.
 
 ## 结果
 
@@ -99,5 +140,5 @@ bash ./web_hust.sh logout
 ## 参考引用
 
 - [SWUOSA/ruijie-authentication: 西南大学校园网自动登录脚本, 基于Python](https://github.com/SWUOSA/ruijie-authentication)
-- [ehxu/Ruijie_JMU: 锐捷 ePortal Web 认证自动登录脚本 (Linux & Windows) ](https://github.com/ehxu/Ruijie_JMU)
+- [ehxu/Ruijie_JMU: 锐捷 ePortal Web 认证自动登录脚本 (Linux & Windows)](https://github.com/ehxu/Ruijie_JMU)
 - [callmeliwen/RuijiePortalLoginTool: 集美大学锐捷 ePortal Web 认证自动登录脚本](https://github.com/callmeliwen/RuijiePortalLoginTool)

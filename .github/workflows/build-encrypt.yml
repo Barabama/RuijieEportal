@@ -1,0 +1,88 @@
+name: Build encrypt binaries
+
+on:
+  push:
+    branches: [main]
+    paths: [src/encrypt.c, src/tommath.c, src/tommath*.h, .github/workflows/build-encrypt.yml]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- x86 ----
+          - {name: x86_64, toolchain: x86_64-linux-musl-cross, gcc: x86_64-linux-musl-gcc, cflags: "", out: "dist/encrypt_x86_64"}
+
+          # ---- AArch64: 一份二进制兼容全部 cortex (AArch64 ISA 固定), 复制多份架构名方便用户按 ipk 命名选 ----
+          - {name: aarch64_cortex-a53, toolchain: aarch64-linux-musl-cross, gcc: aarch64-linux-musl-gcc, cflags: "", out: "dist/encrypt_aarch64_cortex-a53 dist/encrypt_aarch64_cortex-a72 dist/encrypt_aarch64_cortex-a76 dist/encrypt_aarch64_generic"}
+
+          # ---- ARMv7 32位: FPU 不同 (vfpv3-d16 vs neon-vfpv4) 必须分别编译; 仅用 -mcpu 隐含 -march ----
+          - {name: arm_cortex-a7_neon-vfpv4, toolchain: arm-linux-musleabihf-cross, gcc: arm-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a7_neon-vfpv4"}
+          - {name: arm_cortex-a15_neon-vfpv4, toolchain: arm-linux-musleabihf-cross, gcc: arm-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a15_neon-vfpv4"}
+          - {name: arm_cortex-a9_vfpv3-d16, toolchain: arm-linux-musleabihf-cross, gcc: arm-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard", out: "dist/encrypt_arm_cortex-a9_vfpv3-d16"}
+
+          # ---- MIPS 24Kc: 大小端各一 ----
+          - {name: mipsel_24kc, toolchain: mipsel-linux-musl-cross, gcc: mipsel-linux-musl-gcc, cflags: "-march=24kc", out: "dist/encrypt_mipsel_24kc"}
+          - {name: mips_24kc, toolchain: mips-linux-musl-cross, gcc: mips-linux-musl-gcc, cflags: "-march=24kc", out: "dist/encrypt_mips_24kc"}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 注册 binfmt, 使交叉编译产物可直接在 runner 上用 qemu 运行 (冒烟测试用)
+      - uses: docker/setup-qemu-action@v3
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.toolchain }}
+          key: toolchain-${{ matrix.toolchain }}-v1
+
+      - name: Download toolchain if not cached
+        run: |
+          if [ ! -d "${{ matrix.toolchain }}" ]; then
+            curl -sL -o tc.tgz https://musl.cc/${{ matrix.toolchain }}.tgz
+            tar -xzf tc.tgz
+          fi
+
+      - name: Cross-compile encrypt.c + tommath.c
+        run: |
+          cd src
+          ../${{ matrix.toolchain }}/bin/${{ matrix.gcc }} -static -O2 -no-pie ${{ matrix.cflags }} -o /tmp/encrypt_build encrypt.c tommath.c
+          cd ..
+          # 产出主文件 + 兼容别名拷贝 (aarch64 一份二进制覆盖全 cortex)
+          first="dist/encrypt_${{ matrix.name }}"
+          cp /tmp/encrypt_build "$first"
+          for f in ${{ matrix.out }}; do
+            [ "$f" = "$first" ] || cp "$first" "$f"
+          done
+
+      - name: Smoke test (verify output matches reference vector)
+        run: |
+          N=94dd2a8675fb779e6b9f7103698634cd400f27a154afa67af6166a43fc26417222a79506d34cacc7641946abda1785b7acf9910ad6a0978c91ec84d40b71d2891379af19ffb333e7517e390bd26ac312fe940c340466b4a5d4af1d65c3b5944078f96a1a51a5a53e4bc302818b7c9f63c4a1b07bd7d874cef1c3d4b2f5eb7871
+          E=10001
+          # 用例1: 真实 secret + RSA 密钥 (认证回归防护, 必须逐字节一致)
+          V1=$(dist/encrypt_${{ matrix.name }} 'wubo06146>e764d7dd8d588a976ee161d50e84f81e' $E $N)
+          [ "$V1" = "8d6286406854f9515785ba63422f8f8e70c7092019fa7f0e7c30bbf71a343cf2ae6966775c47d02b4da19e11129ce8082f72f8e4d2b9d64f92cf7cc5ebe74033c32cd82c27da78e62e5d1a1c1352888204a3a23507ab6997cfb5f4dcaa33a067fd931c0c832d8e3ceb57a8c3dfb823b4aac921890002dd7bff82ee6b243d5221" ] || { echo "FAIL case1"; exit 1; }
+          # 用例2: 短 secret (左补零边界)
+          V2=$(dist/encrypt_${{ matrix.name }} 'a>1' $E $N)
+          [ "$V2" = "71bb6d28a9759ad3f88eb7127725728e369c4380752777a783966c86d824166c5ad948d3875d11ebce2f972b923ceef94fce98ca2090fb513580e8d750a18bfec9c7ac970cf3897872c649221c34e12392133d622b8b5ba85bc569441f3d1f5cbdacf2da15e480abd6c56dd28e92df5fc1a2bbcfdb8a44fd2fb72057e7e47b69" ] || { echo "FAIL case2"; exit 1; }
+          echo "smoke test PASS (${{ matrix.name }})"
+
+      - name: Verify ELF architecture
+        run: file dist/encrypt_${{ matrix.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: encrypt-${{ matrix.name }}
+          path: ${{ matrix.out }}
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.out }}

@@ -1,43 +1,71 @@
-// rsa_encrypt.c
+// rsa_encrypt.c - textbook RSA encryption (secret^e mod n, no padding)
+// 基于 libtommath (单文件合并版 tommath.c), 替代 gmp 实现.
+// 输出: 十六进制, 左补零到模长 (与旧 gmp 版本逐字节一致).
+// 编译: gcc -static -O2 encrypt.c tommath.c -o encrypt
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
-// #include <stdlib.h>
-#include <gmp.h>
+#include "tommath.h"
 
-void encrypt_password(const char *secret, const char *e_hex, const char *n_hex, char *encrypted_hex)
+int encrypt_password(const char *secret, const char *e_hex, const char *n_hex, char *encrypted_hex, size_t encrypted_hex_size)
 {
-    mpz_t s_int, e_int, n_int, encrypted_int;
-    mpz_init(s_int);
-    mpz_init(e_int);
-    mpz_init(n_int);
-    mpz_init(encrypted_int);
+    mp_int s_int, e_int, n_int, c_int;
+    int ret = -1;
 
-    mpz_import(s_int, strlen(secret), 1, sizeof(char), 0, 0, secret);
-    // Import bytes as a big-endian integer to match Python's
-    // int.from_bytes(secret.encode(), 'big'). Use explicit endian=1
-    // (most-significant byte first) for portability across platforms.
-    size_t secret_len = strlen(secret);
-    mpz_import(s_int, secret_len, 1, sizeof(char), 1, 0, secret);
-    if (mpz_set_str(e_int, e_hex, 16) == -1 || mpz_set_str(n_int, n_hex, 16) == -1)
+    if (mp_init_multi(&s_int, &e_int, &n_int, &c_int, NULL) != MP_OKAY)
+        return -1;
+
+    // Import secret bytes as a big-endian integer to match Python's
+    // int.from_bytes(secret.encode(), 'big').
+    if (mp_from_ubin(&s_int, (const unsigned char *)secret, strlen(secret)) != MP_OKAY)
+        goto cleanup;
+    if (mp_read_radix(&e_int, e_hex, 16) != MP_OKAY ||
+        mp_read_radix(&n_int, n_hex, 16) != MP_OKAY)
     {
         fprintf(stderr, "Error: Failed to set exponent or modulus.\n");
-        return;
+        goto cleanup;
     }
 
-    mpz_powm(encrypted_int, s_int, e_int, n_int);
-    // Ensure hex output is left-padded with zeros to modulus length
+    // c = s^e mod n
+    if (mp_exptmod(&s_int, &e_int, &n_int, &c_int) != MP_OKAY)
+        goto cleanup;
+
+    // modulus byte length from hex length
     size_t n_hex_len = strlen(n_hex);
     size_t mod_bytes = (n_hex_len + 1) / 2;
     size_t hex_width = mod_bytes * 2;
-    char fmt[32];
-    // build format like "%0<width>Zx" to pad with zeros
-    snprintf(fmt, sizeof(fmt), "%%0%zuZx", hex_width);
-    gmp_sprintf(encrypted_hex, fmt, encrypted_int);
+    if (hex_width + 1 > encrypted_hex_size)
+    {
+        fprintf(stderr, "Error: Output buffer too small.\n");
+        goto cleanup;
+    }
 
-    mpz_clear(s_int);
-    mpz_clear(e_int);
-    mpz_clear(n_int);
-    mpz_clear(encrypted_int);
+    // convert c to hex; mp_to_radix outputs UPPERCASE, 转小写与旧 gmp 版一致
+    char tmp[1024];
+    size_t written = 0;
+    if (mp_to_radix(&c_int, tmp, sizeof(tmp), &written, 16) != MP_OKAY)
+        goto cleanup;
+    for (char *p = tmp; *p; p++)
+        *p = (char)tolower((unsigned char)*p);
+
+    // left-pad with zeros to modulus length
+    size_t len = strlen(tmp);
+    size_t pad = hex_width > len ? hex_width - len : 0;
+    if (pad > 0)
+    {
+        memset(encrypted_hex, '0', pad);
+        memcpy(encrypted_hex + pad, tmp, len + 1);  // include '\0'
+    }
+    else
+    {
+        memcpy(encrypted_hex, tmp, len + 1);
+    }
+
+    ret = 0;
+
+cleanup:
+    mp_clear_multi(&s_int, &e_int, &n_int, &c_int, NULL);
+    return ret;
 }
 
 int main(int argc, char *argv[])
@@ -53,7 +81,11 @@ int main(int argc, char *argv[])
     const char *rsa_n = argv[3];
 
     char encrypted_hex[512];
-    encrypt_password(secret, rsa_e, rsa_n, encrypted_hex);
+    if (encrypt_password(secret, rsa_e, rsa_n, encrypted_hex, sizeof(encrypted_hex)) != 0)
+    {
+        fprintf(stderr, "Error: encryption failed.\n");
+        return 1;
+    }
 
     printf("%s\n", encrypted_hex);
 
