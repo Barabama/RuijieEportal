@@ -62,19 +62,20 @@ jobs:
         include:
           # qemu 字段: 冒烟测试用显式 qemu-static 调用 (绕过 binfmt, 大端 mips 的 binfmt 有 EACCES 问题); x86_64 原生运行
           # ---- x86 ----
-          - {name: x86_64, toolchain: x86_64-unknown-linux-musl, gcc: x86_64-unknown-linux-musl-gcc, cflags: "", qemu: "", out: "dist/encrypt_x86_64"}
+          - {name: x86_64, toolchain: x86_64-unknown-linux-musl, gcc: x86_64-unknown-linux-musl-gcc, cflags: "", qemu: "", out: "dist/encrypt_x86_64", upload: "dist/encrypt_x86_64"}
 
           # ---- AArch64: 一份二进制兼容全部 cortex (AArch64 ISA 固定), 复制多份架构名方便用户按 ipk 命名选 ----
-          - {name: aarch64_cortex-a53, toolchain: aarch64-unknown-linux-musl, gcc: aarch64-unknown-linux-musl-gcc, cflags: "", qemu: qemu-aarch64-static, out: "dist/encrypt_aarch64_cortex-a53 dist/encrypt_aarch64_cortex-a72 dist/encrypt_aarch64_cortex-a76 dist/encrypt_aarch64_generic"}
+          # out 空格分隔(供拷贝循环), upload 用 glob(供上传/Release, upload-artifact v4 的 path 不认空格)
+          - {name: aarch64_cortex-a53, toolchain: aarch64-unknown-linux-musl, gcc: aarch64-unknown-linux-musl-gcc, cflags: "", qemu: qemu-aarch64-static, out: "dist/encrypt_aarch64_cortex-a53 dist/encrypt_aarch64_cortex-a72 dist/encrypt_aarch64_cortex-a76 dist/encrypt_aarch64_generic", upload: "dist/encrypt_aarch64_*"}
 
           # ---- ARMv7 32位: FPU 不同 (vfpv3-d16 vs neon-vfpv4) 必须分别编译; 仅用 -mcpu 隐含 -march ----
-          - {name: arm_cortex-a7_neon-vfpv4, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard", qemu: qemu-arm-static, out: "dist/encrypt_arm_cortex-a7_neon-vfpv4"}
-          - {name: arm_cortex-a15_neon-vfpv4, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard", qemu: qemu-arm-static, out: "dist/encrypt_arm_cortex-a15_neon-vfpv4"}
-          - {name: arm_cortex-a9_vfpv3-d16, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard", qemu: qemu-arm-static, out: "dist/encrypt_arm_cortex-a9_vfpv3-d16"}
+          - {name: arm_cortex-a7_neon-vfpv4, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard", qemu: qemu-arm-static, out: "dist/encrypt_arm_cortex-a7_neon-vfpv4", upload: "dist/encrypt_arm_cortex-a7_neon-vfpv4"}
+          - {name: arm_cortex-a15_neon-vfpv4, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard", qemu: qemu-arm-static, out: "dist/encrypt_arm_cortex-a15_neon-vfpv4", upload: "dist/encrypt_arm_cortex-a15_neon-vfpv4"}
+          - {name: arm_cortex-a9_vfpv3-d16, toolchain: arm-unknown-linux-musleabihf, gcc: arm-unknown-linux-musleabihf-gcc, cflags: "-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard", qemu: qemu-arm-static, out: "dist/encrypt_arm_cortex-a9_vfpv3-d16", upload: "dist/encrypt_arm_cortex-a9_vfpv3-d16"}
 
           # ---- MIPS 24Kc: 大小端各一 ----
-          - {name: mipsel_24kc, toolchain: mipsel-unknown-linux-musl, gcc: mipsel-unknown-linux-musl-gcc, cflags: "-march=24kc", qemu: qemu-mipsel-static, out: "dist/encrypt_mipsel_24kc"}
-          - {name: mips_24kc, toolchain: mips-unknown-linux-musl, gcc: mips-unknown-linux-musl-gcc, cflags: "-march=24kc", qemu: qemu-mips-static, out: "dist/encrypt_mips_24kc"}
+          - {name: mipsel_24kc, toolchain: mipsel-unknown-linux-musl, gcc: mipsel-unknown-linux-musl-gcc, cflags: "-march=24kc", qemu: qemu-mipsel-static, out: "dist/encrypt_mipsel_24kc", upload: "dist/encrypt_mipsel_24kc"}
+          - {name: mips_24kc, toolchain: mips-unknown-linux-musl, gcc: mips-unknown-linux-musl-gcc, cflags: "-march=24kc", qemu: qemu-mips-static, out: "dist/encrypt_mips_24kc", upload: "dist/encrypt_mips_24kc"}
 
     steps:
       - uses: actions/checkout@v4
@@ -133,11 +134,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: encrypt-${{ matrix.name }}
-          path: ${{ matrix.out }}
+          path: ${{ matrix.upload }}
           if-no-files-found: error
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.out }}
+          files: ${{ matrix.upload }}
