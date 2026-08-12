@@ -78,7 +78,7 @@ jobs:
           - {name: mips_24kc, toolchain: mips-unknown-linux-musl, gcc: mips-unknown-linux-musl-gcc, cflags: "-march=24kc", qemu: qemu-mips-static, out: "dist/encrypt_mips_24kc", upload: "dist/encrypt_mips_24kc"}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.1.0
 
       - name: Restore toolchains from cache
         uses: actions/cache@v5.1.0
@@ -131,7 +131,7 @@ jobs:
       - name: Verify ELF architecture
         run: file dist/encrypt_${{ matrix.name }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6.0.0
         with:
           name: encrypt-${{ matrix.name }}
           path: ${{ matrix.upload }}
@@ -139,6 +139,6 @@ jobs:
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3.0.2
         with:
           files: ${{ matrix.upload }}
