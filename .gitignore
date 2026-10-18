@@ -1,11 +1,24 @@
-# .gitignore
+# Python bytecode and virtual environments
 **/__pycache__/
+*.py[cod]
 .venv/
+
+# Editor and local assistant state
 .idea/
 .vscode/
-.tests/
-test*
+.claude/
 
-config*
-build/*
-tries/*
+# Local test scratch
+.tests/
+
+# Local runtime configuration and build output
+/config/
+/build/
+/tries/
+
+# Root-level test scratch files; package test sources remain tracked
+/test*
+
+# Independent nested Git checkouts. Clone them separately on a new machine.
+/UA3F/
+/luci-app-nettask/
