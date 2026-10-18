@@ -120,9 +120,9 @@ jobs:
           # 显式 qemu 调用 (绕过 binfmt); x86_64 的 qemu 为空则直接原生运行
           RUN="dist/encrypt_${{ matrix.name }}"
           [ -z "${{ matrix.qemu }}" ] || RUN="${{ matrix.qemu }} $RUN"
-          # 用例1: 真实 secret + RSA 密钥 (认证回归防护, 必须逐字节一致)
-          V1=$($RUN 'wubo06146>e764d7dd8d588a976ee161d50e84f81e' $E $N)
-          [ "$V1" = "8d6286406854f9515785ba63422f8f8e70c7092019fa7f0e7c30bbf71a343cf2ae6966775c47d02b4da19e11129ce8082f72f8e4d2b9d64f92cf7cc5ebe74033c32cd82c27da78e62e5d1a1c1352888204a3a23507ab6997cfb5f4dcaa33a067fd931c0c832d8e3ceb57a8c3dfb823b4aac921890002dd7bff82ee6b243d5221" ] || { echo "FAIL case1"; exit 1; }
+          # 用例1: 固定测试 secret + RSA 密钥 (认证回归防护, 必须逐字节一致)
+          V1=$($RUN 'test-user>test-password' $E $N)
+          [ "$V1" = "5e30a30d4ceaccc73e1be5b0898867fcf6cdecb1730758508780ada471d696f3f7336de35c9eabc16061c1b874765b504adb87bd439d32e8df43f77498afaf556e17ffa929b7256129c6608a2a499080f3b4f028c54886279bd8e54e45a406e26ae2184aa4af4ee1cf39a29a4a35d007c61588d22325b41b54d71ab5326d6042" ] || { echo "FAIL case1"; exit 1; }
           # 用例2: 短 secret (左补零边界)
           V2=$($RUN 'a>1' $E $N)
           [ "$V2" = "71bb6d28a9759ad3f88eb7127725728e369c4380752777a783966c86d824166c5ad948d3875d11ebce2f972b923ceef94fce98ca2090fb513580e8d750a18bfec9c7ac970cf3897872c649221c34e12392133d622b8b5ba85bc569441f3d1f5cbdacf2da15e480abd6c56dd28e92df5fc1a2bbcfdb8a44fd2fb72057e7e47b69" ] || { echo "FAIL case2"; exit 1; }

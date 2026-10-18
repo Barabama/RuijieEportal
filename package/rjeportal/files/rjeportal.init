@@ -145,12 +145,29 @@ start() {
     watchdog_start
 }
 
+wait_for_exit() {
+    pid=$1
+    attempts=0
+    while kill -0 "$pid" 2>/dev/null; do
+        [ "$attempts" -lt 3 ] || return 1
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+    return 0
+}
+
 watchdog_stop() {
     if [ -s "$PIDFILE" ]; then
         pid=$(cat "$PIDFILE" 2>/dev/null)
         case "$pid" in
             ''|*[!0-9]*) ;;
-            *) kill "$pid" 2>/dev/null || true ;;
+            *)
+                kill "$pid" 2>/dev/null || true
+                if ! wait_for_exit "$pid"; then
+                    kill -9 "$pid" 2>/dev/null || true
+                    wait_for_exit "$pid" || true
+                fi
+                ;;
         esac
         rm -f "$PIDFILE"
         log_msg "watchdog stopped"
