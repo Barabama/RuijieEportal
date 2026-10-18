@@ -1,0 +1,162 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+CONFIG=rjeportal
+# Optional path overrides are used by the isolated package integration tests.
+UCI=${RJEPORTAL_UCI:-uci}
+SCRIPT=${RJEPORTAL_CLI:-/usr/bin/rjeportal}
+RUNTIME_DIR=${RJEPORTAL_RUNTIME_DIR:-/var/run/rjeportal}
+PIDFILE=$RUNTIME_DIR/watchdog.pid
+
+cfg_get() {
+    "$UCI" -q get "$CONFIG.main.$1" 2>/dev/null
+}
+
+log_msg() {
+    logger -t rjeportal "$*"
+}
+
+valid_number() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+read_number() {
+    value=$(cfg_get "$1")
+    valid_number "$value" || value=$2
+    [ "$value" -ge "$3" ] 2>/dev/null || value=$2
+    printf '%s\n' "$value"
+}
+
+pid_is_running() {
+    [ -s "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE" 2>/dev/null)
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    kill -0 "$pid" 2>/dev/null
+}
+
+watchdog_status() {
+    if pid_is_running; then
+        echo running
+        return 0
+    fi
+    rm -f "$PIDFILE"
+    echo stopped
+    return 1
+}
+
+login_once() {
+    retries=$(read_number retry 3 1)
+    retry_delay=$(read_number retry_delay 15 0)
+    attempt=1
+
+    while [ "$attempt" -le "$retries" ]; do
+        if "$SCRIPT" login; then
+            log_msg "login succeeded (attempt $attempt)"
+            return 0
+        fi
+        log_msg "login failed (attempt $attempt/$retries)"
+        attempt=$((attempt + 1))
+        [ "$attempt" -le "$retries" ] && sleep "$retry_delay"
+    done
+    return 1
+}
+
+watchdog_loop() {
+    start_delay=$(read_number start_delay 30 0)
+    interval=$(read_number check_interval 60 1)
+    cooldown=$(read_number failure_cooldown 300 1)
+    previous_state=
+
+    trap 'exit 0' HUP INT TERM
+    trap 'rm -f "$PIDFILE"' 0
+
+    sleep "$start_delay"
+    while :; do
+        state=$("$SCRIPT" status 2>/dev/null)
+        case "$state" in
+            online)
+                [ "$previous_state" = online ] || log_msg "network state: online"
+                previous_state=online
+                sleep "$interval"
+                ;;
+            captive)
+                [ "$previous_state" = captive ] || log_msg "network state: captive; attempting login"
+                previous_state=captive
+                if login_once && [ "$("$SCRIPT" status 2>/dev/null)" = online ]; then
+                    log_msg "watchdog login verified"
+                    previous_state=online
+                    sleep "$interval"
+                else
+                    log_msg "watchdog login could not be verified; cooling down"
+                    sleep "$cooldown"
+                fi
+                ;;
+            unreachable|unknown)
+                [ "$previous_state" = "$state" ] || log_msg "network state: $state; login skipped"
+                previous_state=$state
+                sleep "$interval"
+                ;;
+            *)
+                [ "$previous_state" = unknown ] || log_msg "network state: unknown; login skipped"
+                previous_state=unknown
+                sleep "$interval"
+                ;;
+        esac
+    done
+}
+
+watchdog_start() {
+    [ -x "$SCRIPT" ] || {
+        log_msg "missing executable: $SCRIPT"
+        return 1
+    }
+
+    mkdir -p "$RUNTIME_DIR" || {
+        log_msg "cannot create $RUNTIME_DIR"
+        return 1
+    }
+
+    if pid_is_running; then
+        return 0
+    fi
+    rm -f "$PIDFILE"
+
+    # Detach stdio and inherited rpcd/sys.exec pipes so the caller returns.
+    # Check for pipes only: /bin/sh may keep its sourced init script on another fd.
+    (
+        for fd in 3 4 5 6 7 8 9 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32; do
+            [ -p "/proc/self/fd/$fd" ] && eval "exec $fd>&-"
+        done
+        watchdog_loop
+    ) </dev/null >/dev/null 2>&1 &
+    echo $! > "$PIDFILE"
+    log_msg "watchdog started"
+}
+
+start() {
+    [ "$(cfg_get enabled)" = 1 ] || return 0
+    watchdog_start
+}
+
+watchdog_stop() {
+    if [ -s "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE" 2>/dev/null)
+        case "$pid" in
+            ''|*[!0-9]*) ;;
+            *) kill "$pid" 2>/dev/null || true ;;
+        esac
+        rm -f "$PIDFILE"
+        log_msg "watchdog stopped"
+    fi
+}
+
+stop() {
+    watchdog_stop
+}

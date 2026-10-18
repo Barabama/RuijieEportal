@@ -1,0 +1,164 @@
+#!/bin/sh
+# rjeportal - OpenWrt CLI wrapper for Ruijie ePortal authentication.
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# Optional path overrides are used by the isolated package integration tests.
+UCI=${RJEPORTAL_UCI:-uci}
+SCRIPT=${RJEPORTAL_CORE:-/usr/libexec/rjeportal/rjeportal.sh}
+INIT=${RJEPORTAL_INIT:-/etc/init.d/rjeportal}
+ENCRYPTION=${RJEPORTAL_ENCRYPTION:-/usr/libexec/rjeportal/encrypt_mipsel_24kc}
+CONFIG=rjeportal.main
+RUNTIME_DIR=${RJEPORTAL_RUNTIME_DIR:-/var/run/rjeportal}
+LOCKDIR=$RUNTIME_DIR/operation.lock
+
+cfg_get() {
+    "$UCI" -q get "$CONFIG.$1" 2>/dev/null
+}
+
+usage() {
+    cat >&2 <<'EOF'
+Usage:
+  rjeportal status
+  rjeportal login
+  rjeportal logout
+  rjeportal watchdog_status
+  rjeportal watchdog_start
+  rjeportal watchdog_stop
+
+login reads credentials from /etc/config/rjeportal and does not accept them
+as command-line arguments.
+EOF
+    exit 2
+}
+
+[ -x "$SCRIPT" ] || {
+    echo "rjeportal: implementation not found: $SCRIPT" >&2
+    exit 1
+}
+
+validate_userindex_file() {
+    path=$1
+    dir=${path%/*}
+    base=${path##*/}
+
+    case "$dir" in
+        /tmp)
+            case "$base" in
+                rjeportal_?*) ;;
+                *) return 1 ;;
+            esac
+            ;;
+        /var/run/rjeportal)
+            case "$base" in
+                [A-Za-z0-9]*) ;;
+                *) return 1 ;;
+            esac
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    case "$base" in
+        *[!A-Za-z0-9_.-]*) return 1 ;;
+    esac
+    return 0
+}
+
+acquire_operation_lock() {
+    mkdir -p "$RUNTIME_DIR" 2>/dev/null || {
+        echo "rjeportal: cannot create $RUNTIME_DIR" >&2
+        return 1
+    }
+    if ! mkdir "$LOCKDIR" 2>/dev/null; then
+        lock_pid=$(cat "$LOCKDIR/pid" 2>/dev/null)
+        case "$lock_pid" in
+            ''|*[!0-9]*) lock_pid= ;;
+        esac
+        if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+            echo 'rjeportal: another operation is already running' >&2
+            return 4
+        fi
+        rm -rf "$LOCKDIR"
+        mkdir "$LOCKDIR" 2>/dev/null || {
+            echo 'rjeportal: another operation is already starting' >&2
+            return 4
+        }
+    fi
+    printf '%s\n' "$$" > "$LOCKDIR/pid"
+    trap 'rm -rf "$LOCKDIR"' 0 HUP INT TERM
+}
+
+portal_ip=$(cfg_get portal_ip)
+status_url=$(cfg_get status_url)
+userindex_file=$(cfg_get userindex_file)
+[ -n "$portal_ip" ] || portal_ip=172.16.0.46
+[ -n "$status_url" ] || status_url=http://connect.rom.miui.com/generate_204
+[ -n "$userindex_file" ] || userindex_file=/tmp/rjeportal_userindex
+if ! validate_userindex_file "$userindex_file"; then
+    echo "rjeportal: userindex_file must be a single safe file under /tmp or /var/run/rjeportal/" >&2
+    exit 2
+fi
+
+run_script() {
+    PORTAL_IP="$portal_ip" \
+    STATUS_URL="$status_url" \
+    USERINDEX_FILE="$userindex_file" \
+    ENCRYPTION="$ENCRYPTION" \
+    "$SCRIPT" "$@"
+}
+
+case "${1:-}" in
+    status)
+        [ "$#" -eq 1 ] || usage
+        run_script status
+        ;;
+    login)
+        [ "$#" -eq 1 ] || usage
+        username=$(cfg_get username)
+        password=$(cfg_get password)
+        [ -n "$username" ] || {
+            echo "rjeportal: username is empty; configure rjeportal.main.username first" >&2
+            exit 2
+        }
+        [ -n "$password" ] || {
+            echo "rjeportal: password is empty; configure rjeportal.main.password first" >&2
+            exit 2
+        }
+        acquire_operation_lock || exit $?
+        # The password travels through stdin, not the process argument list.
+        printf '%s\n%s\n' "$username" "$password" | run_script login
+        ;;
+    logout)
+        [ "$#" -eq 1 ] || usage
+        acquire_operation_lock || exit $?
+        run_script logout
+        ;;
+    watchdog_status)
+        [ "$#" -eq 1 ] || usage
+        [ -x "$INIT" ] || {
+            echo "rjeportal: init script not found: $INIT" >&2
+            exit 1
+        }
+        exec "$INIT" watchdog_status
+        ;;
+    watchdog_start)
+        [ "$#" -eq 1 ] || usage
+        [ -x "$INIT" ] || {
+            echo "rjeportal: init script not found: $INIT" >&2
+            exit 1
+        }
+        exec "$INIT" watchdog_start
+        ;;
+    watchdog_stop)
+        [ "$#" -eq 1 ] || usage
+        [ -x "$INIT" ] || {
+            echo "rjeportal: init script not found: $INIT" >&2
+            exit 1
+        }
+        exec "$INIT" watchdog_stop
+        ;;
+    *)
+        usage
+        ;;
+esac

@@ -1,0 +1,11 @@
+{
+    "luci-app-rjeportal": {
+        "description": "Grant access to the Ruijie ePortal LuCI application",
+        "read": {
+            "uci": [ "rjeportal" ]
+        },
+        "write": {
+            "uci": [ "rjeportal" ]
+        }
+    }
+}
