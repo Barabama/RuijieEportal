@@ -1,0 +1,19 @@
+# Normalize text files for cross-platform checkouts.
+* text=auto eol=lf
+
+# Windows-only helper scripts, if added later.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary artifacts must never be normalized.
+*.bin binary
+*.ipk binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.zip binary
+dist/* binary
+package/rjeportal/files/encrypt_* binary
