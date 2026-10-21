@@ -119,6 +119,11 @@ python main.py login -u YOUR_USERNAME -p YOUR_PASSWORD --portal 172.16.0.46
 | `luci-app-rjeportal` | LuCI 状态页、配置页、登录/登出/看门狗按钮 |
 | `luci-app-nettask` | 通用 Shell 脚本管理（可选，不参与认证） |
 
+`luci-app-nettask` 是独立仓库：
+[Barabama/luci-app-nettask](https://github.com/Barabama/luci-app-nettask)
+（fork 自 [lucikap/luci-app-nettask](https://github.com/lucikap/luci-app-nettask)，
+开发分支 `rjeportal-integration`）。它有自己的 tag 触发构建和 Release 流程。
+
 用与固件同版本的 ImmortalWrt SDK 构建：
 
 ```sh
