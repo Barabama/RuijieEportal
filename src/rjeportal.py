@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 from urllib.parse import urlparse, parse_qs
 
 import requests
@@ -31,6 +32,10 @@ DEFAULT_PORTAL = "172.16.0.46"
 # HTTP 204 连通性探测地址: 在线时返回 204, 未认证时被 NAS 拦截跳转
 ONLINE_URL = "http://connect.rom.miui.com/generate_204"
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".rjeportal.json")
+USERINDEX_PATH = os.environ.get(
+    "RJEPORTAL_USERINDEX_FILE",
+    os.path.join(os.path.expanduser("~"), ".rjeportal_userindex"),
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -56,6 +61,9 @@ class SourceAdapter(HTTPAdapter):
 
 def make_session(interface=None) -> requests.Session:
     s = requests.Session()
+    # Portal and connectivity probes must not be redirected through a system
+    # proxy. This also lets --interface bind the actual WLAN source address.
+    s.trust_env = False
     if interface:
         s.mount("http://", SourceAdapter(interface))
         s.mount("https://", SourceAdapter(interface))
@@ -68,6 +76,44 @@ def make_session(interface=None) -> requests.Session:
         }
     )
     return s
+
+
+def save_user_index(user_index: str) -> None:
+    """Persist the session index for a later logout without exposing it."""
+    directory = os.path.dirname(USERINDEX_PATH) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".rjeportal_userindex.", dir=directory)
+    try:
+        os.close(fd)
+        fd = -1
+        os.chmod(temporary, 0o600)
+        with open(temporary, "w", encoding="utf-8") as handle:
+            handle.write(user_index)
+            handle.write("\n")
+        os.replace(temporary, USERINDEX_PATH)
+    except BaseException:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def load_user_index() -> str:
+    try:
+        with open(USERINDEX_PATH, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def remove_user_index() -> None:
+    try:
+        os.unlink(USERINDEX_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def encrypt_password(secret: str, rsa_e: str, rsa_n: str) -> str:
@@ -171,9 +217,15 @@ def do_login(args) -> int:
         timeout=15, verify=False,
     )
     res = resp.json()
-    log.info(f"LoginResult: {json.dumps(res, ensure_ascii=False)}")
+    logged_result = dict(res)
+    if logged_result.get("userIndex"):
+        logged_result["userIndex"] = "***"
+    log.info(f"LoginResult: {json.dumps(logged_result, ensure_ascii=False)}")
 
     if res.get("result") == "success":
+        user_index = res.get("userIndex", "").strip()
+        if user_index:
+            save_user_index(user_index)
         if args.save:
             save_config(args.username, args.password, args.encrypt, args.portal)
             log.info("Config saved to %s", CONFIG_PATH)
@@ -186,19 +238,25 @@ def do_logout(args) -> int:
     s = make_session(args.interface)
     eportal = f"http://{args.portal}/eportal"
 
-    resp = s.get(f"{eportal}/redirectortosuccess.jsp", timeout=10, verify=False)
-    m = re.search(r"userIndex=([^&]+)", resp.url)
-    if not m:
+    user_index = load_user_index()
+    if not user_index:
+        resp = s.get(f"{eportal}/redirectortosuccess.jsp", timeout=10, verify=False)
+        user_index = parse_qs(urlparse(resp.url).query).get("userIndex", [""])[0]
+    if not user_index:
         log.info("Already logged out (no userIndex found).")
         return 0
 
     res = s.post(
         f"{eportal}/InterFace.do?method=logout",
-        data={"userIndex": m.group(1)},
+        data={"userIndex": user_index},
         timeout=10, verify=False,
     ).json()
-    log.info(f"LogoutResult: {json.dumps(res, ensure_ascii=False)}")
-    return 0 if res.get("result") == "success" else 1
+    if res.get("result") != "success":
+        log.error(f"Logout failed: {json.dumps(res, ensure_ascii=False)}")
+        return 1
+    remove_user_index()
+    log.info("Logout succeeded.")
+    return 0
 
 
 def save_config(username, password, encrypt, portal):

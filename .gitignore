@@ -22,3 +22,5 @@
 # Independent nested Git checkouts. Clone them separately on a new machine.
 /UA3F/
 /luci-app-nettask/
+temp/
+.env
