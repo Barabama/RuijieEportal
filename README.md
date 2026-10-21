@@ -13,7 +13,7 @@ cd RuijieEportal
 
 也可以在 GitHub 页面选择 **Code → Download ZIP**，解压后进入项目目录。后面的命令都假设当前目录是项目根目录。
 
-开发环境迁移、NetTask fork 和 UA3F 的独立仓库恢复步骤见 [docs/development-environment.md](./docs/development-environment.md)。
+开发环境迁移、NetTask fork 和 UA3F 的独立仓库恢复步骤见 [docs/development-environment.md](./docs/development-environment.md)。三个 OpenWrt 包的 SDK 构建命令是 `sh tools/build-packages.sh`，R3G 真机安装与验证结果见 [docs/r3g-ondevice-verification.md](./docs/r3g-ondevice-verification.md)。
 
 ## 先选一种用法
 

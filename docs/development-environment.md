@@ -74,6 +74,11 @@ git add --renormalize .
 git checkout -- .
 ```
 
+`luci-app-nettask` 是独立仓库，`.gitattributes` 不会从主仓库继承。缺少该文件时，
+Windows Git 会把 `luasrc/view/cbi/*.htm` 检出为 CRLF，LuCI 模板编译器会报
+`unfinished string near '"'`，导致高级功能页返回 HTTP 500。该仓库现在自带
+`* text=auto eol=lf`，迁移或重新克隆后同样用上面的 `git ls-files --eol` 检查。
+
 ## 本地验证
 
 在 Linux 或 WSL 中运行：
@@ -93,6 +98,11 @@ PYTHONDONTWRITEBYTECODE=1 \
 集成测试只访问 `127.0.0.1` 上的 fake ePortal，不会连接校园网，也不会占用宿舍区认证设备位。
 
 ## 构建说明
+
+`sh tools/build-packages.sh [SDK_PATH]` 用与固件同版本的 ImmortalWrt SDK 编译
+`rjeportal`、`luci-app-rjeportal` 和 NetTask fork，产物放在 `build/ipk/`（不纳入版本
+控制）。IPK 在 R3G 上的安装与验证结果见
+[docs/r3g-ondevice-verification.md](./r3g-ondevice-verification.md)。
 
 `package/rjeportal` 当前面向 `ramips/mt7621` 和 `mipsel_24kc`。正式 IPK 应在与 R3G 固件版本匹配的 ImmortalWrt SDK 中构建；x86 虚拟机只用于 LuCI 页面和包布局验证，不能替代 R3G 目标包的编译。
 

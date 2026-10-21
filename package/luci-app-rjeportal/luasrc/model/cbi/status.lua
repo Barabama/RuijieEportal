@@ -1,6 +1,12 @@
 local rjeportal = require "luci.model.rjeportal"
 local util = require "luci.util"
 
+-- LuCI 24.10 moved pcdata() to luci.xml and made luci.util.pcdata() print a
+-- deprecation notice to syslog on every call. Prefer the new location and
+-- fall back to luci.util for older releases.
+local ok, xml = pcall(require, "luci.xml")
+local pcdata = (ok and xml and xml.pcdata) or util.pcdata
+
 local m = Map("rjeportal", translate("Ruijie ePortal status and control"), translate(
     "All operations below call fixed subcommands of /usr/bin/rjeportal. Authentication protocol code is kept in the rjeportal core package."))
 
@@ -38,7 +44,7 @@ function status_detail.cfgvalue()
     if value == "" then
         return translate("(no output)")
     end
-    return util.pcdata(value)
+    return pcdata(value)
 end
 
 local watchdog = section:option(DummyValue, "_watchdog", translate("Watchdog"))
@@ -51,7 +57,7 @@ function watchdog.cfgvalue()
     if value == "" then
         return translate("Supported; no status output")
     end
-    return util.pcdata(value)
+    return pcdata(value)
 end
 
 local login = add_action(section, "login", "Log in", "Run /usr/bin/rjeportal login using the saved UCI credentials.")

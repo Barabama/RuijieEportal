@@ -3,6 +3,14 @@
 START=99
 STOP=10
 
+# rc.common only dispatches custom actions listed here. Without this, LuCI's
+# watchdog_start/watchdog_stop/watchdog_status calls are rejected as unknown
+# commands even though the functions below exist.
+EXTRA_COMMANDS="watchdog_start watchdog_stop watchdog_status"
+EXTRA_HELP="	watchdog_start	Start the authentication watchdog
+	watchdog_stop	Stop the authentication watchdog
+	watchdog_status	Show watchdog status"
+
 CONFIG=rjeportal
 # Optional path overrides are used by the isolated package integration tests.
 UCI=${RJEPORTAL_UCI:-uci}

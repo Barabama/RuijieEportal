@@ -5,7 +5,7 @@ LUCI_DEPENDS:=+rjeportal +luci-compat
 LUCI_PKGARCH:=all
 
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_MAINTAINER:=Barabama <barabama@qq.com>
 PKG_LICENSE:=GPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE

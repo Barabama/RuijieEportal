@@ -19,6 +19,9 @@ assert 'run_script login "$username" "$password"' not in cli
 for action in ("watchdog_status", "watchdog_start", "watchdog_stop"):
     assert action in cli
     assert f"{action}()" in init
+# rc.common rejects custom actions that are not declared in EXTRA_COMMANDS,
+# which would make the wrapper/LuCI watchdog controls unusable at runtime.
+assert 'EXTRA_COMMANDS="watchdog_start watchdog_stop watchdog_status"' in init
 assert "single safe file" in cli
 assert "rjeportal_?*" in cli
 assert "[A-Za-z0-9]*" in cli
