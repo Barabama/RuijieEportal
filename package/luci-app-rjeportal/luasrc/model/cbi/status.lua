@@ -32,6 +32,16 @@ end
 local section = m:section(SimpleSection)
 section.anonymous = true
 
+-- SimpleSection has no UCI section name, and the inherited Node.parse()
+-- forwards an empty section to its children. On form submission that reaches
+-- AbstractValue.cbid(), which concatenates the section and fails with
+-- "attempt to concatenate local 'section' (a nil value)" in luci-compat's
+-- cbi.lua. cbi/nullsection.htm renders children with the pseudo-index 1, so
+-- parse them with the same value to keep the cbid keys in sync.
+function section.parse(self)
+    Node.parse(self, 1)
+end
+
 local status = section:option(DummyValue, "_status", translate("Authentication status"))
 function status.cfgvalue()
     return rjeportal.status_label(status_rc, status_output)

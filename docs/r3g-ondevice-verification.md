@@ -81,8 +81,50 @@ LuCI 24.10 已把 `pcdata` 移到 `luci.xml`；旧的 `luci.util` 入口每次�
 `unfinished string near '"'`，`/admin/system/NetTask/trontabs` 返回 500。已添加与
 主仓库一致的 `* text=auto eol=lf` 并重新检出。
 
+### 4.4 状态页提交时报 `attempt to concatenate local 'section'`
+
+页面能正常打开，但点任意按钮（登录/登出/刷新/看门狗）都会 500：
+
+```text
+luci/cbi.lua:1364: attempt to concatenate local 'section' (a nil value)
+```
+
+`cbi.lua:1364` 是 `AbstractValue.cbid()`：
+
+```lua
+function AbstractValue.cbid(self, section)
+	return "cbid."..self.map.config.."."..section.."."..self.option
+end
+```
+
+`SimpleSection` 没有 UCI section 名，`cbi/nullsection.htm` 渲染子节点时用的是
+伪索引 `1`（所以页面里字段名是 `cbid.rjeportal.1._login`）。但继承来的
+`Node.parse()` 把空 section 转发给子节点，`section` 为 nil，提交时就炸了。
+luci-compat 的 `SimpleSection` 只有 `__init__`，没有 `parse` 或 `cfgsections`。
+
+修复是在模型里覆盖解析，让它和渲染使用同一个伪索引：
+
+```lua
+function section.parse(self)
+    Node.parse(self, 1)
+end
+```
+
+修好后五个按钮全部返回 200，且 `write` 回调真的执行了：
+
+```text
+Log in          -> rjeportal: already online
+Log out         -> {"result":"success","message":"下线成功！"}
+Refresh status  -> 200
+Start watchdog  -> 200
+Stop watchdog   -> 200
+```
+
+> 任何「`SimpleSection` + `Button`（自定义 `write`）」的页面都需要这个覆盖；
+> 只是放个 `DummyValue` 或纯静态模板的页面不会触发。
+
 这三处都需要在 IPK 版本号上递增才能让 opkg 真正升级：`rjeportal` →
-`0.2.0-r5`，`luci-app-rjeportal` → `0.1.0-r3`。
+`0.2.0-r5`，`luci-app-rjeportal` → `0.1.0-r4`。
 
 ## 5. 验证结果
 
@@ -138,9 +180,44 @@ logread         -> watchdog started / captive / login succeeded (attempt 1)
 /admin/system/NetTask/trontabs     -> 200
 ```
 
+状态页的五个按钮逐个 POST 验证过，都返回 200 且回调真的执行（见 4.4）。
+
 状态页显示的 `stop → start` 与 `start_delay=30` 与 reboot 日志中的时间差一致。
 
-## 6. 遗留
+## 6. 设备上的 NetTask 现状
+
+路由器原先装的是上游 `luci-app-nettask 2.0.0-1`，用 `word.sh` 定时调用
+`/root/RuijieEportal-main/main.sh` 登录。现在已换成 fork 的 `2.0.0-r3`：
+
+```text
+luci-app-nettask - 2.0.0-r3      (nixio 版本，目录结构扁平化)
+nettask.main.word    = 0         # 开机脚本
+nettask.main.network = 0         # 断网触发
+nettask.main.timi    = 0         # 定时任务
+nettask.main.button  = 0         # 物理按键
+nettask.main.open    = 0
+```
+
+`/etc/rc.button/reset` 是原始文件（未被替换），`crontab` 里也没有 NetTask 生成的
+条目。也就是说 NetTask 现在完全不参与认证，也不会和 `rjeportal` 抢登录。
+
+是否卸载取决于是否需要它的脚本管理界面：
+
+- **保留（当前状态）**：包已升级且全部触发关闭，不会干扰认证。需要临时跑维护脚本
+  时还能用它的上传/定时/试运行功能。
+- **卸载**：认证已完全由 `rjeportal` 承担，卸载可减少一个能以 root 执行任意 shell
+  的 LuCI 入口，也能省下约 20 KB。`/etc/config/nettask` 和 `/etc/nettask/*.sh`
+  都不是 conffile，卸载会一并删除；需要的话先备份。
+
+如果决定卸载：
+
+```sh
+/etc/init.d/nettask stop
+/etc/init.d/nettask disable
+opkg remove luci-app-nettask
+```
+
+## 7. 遗留
 
 - `rjeportal` 仍固定 `PKGARCH:=mipsel_24kc` 并依赖 `@TARGET_ramips_mt7621`。
   要覆盖其他架构，需要把加密二进制改成按 `DISTRIB_ARCH` 选择安装。
