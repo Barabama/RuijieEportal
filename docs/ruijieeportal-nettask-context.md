@@ -4,6 +4,16 @@
 >
 > 记录日期：2026-09-04
 >
+> **状态说明（2026-10-21）**：本文是方案演进阶段的快照，部分内容已经过时。
+> 当前三个包已经在 R3G 真机上安装并验证，NetTask 已使用 fork 的
+> `rjeportal-integration` 分支。最新状态以以下文档为准：
+>
+> - [`docs/r3g-ondevice-verification.md`](./r3g-ondevice-verification.md)：安装、真机闭环、看门狗和重启自愈
+> - [`docs/development-environment.md`](./development-environment.md)：构建和迁移
+> - [`README.md`](../README.md)：用户侧用法
+>
+> 下文保留以便追溯设计原因，不要直接照搬里面的“当前状态”。
+>
 > 主项目：`RuijieEportal` Git 仓库
 
 ## 1. 当前总目标

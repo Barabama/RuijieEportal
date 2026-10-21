@@ -20,7 +20,8 @@ cd RuijieEportal
 | 使用场景 | 推荐入口 | 说明 |
 | --- | --- | --- |
 | Windows、Linux 普通主机 | `python main.py` | 只需要 Python 和 `requests` |
-| OpenWrt/ImmortalWrt 路由器 | `bash main.sh` | 需要 `curl` 和对应架构的加密二进制 |
+| OpenWrt/ImmortalWrt 路由器（推荐） | 安装 `rjeportal` IPK | 带 LuCI 页面、看门狗和会话管理 |
+| OpenWrt/ImmortalWrt 路由器（最小方式） | `bash main.sh` | 需要 `curl` 和对应架构的加密二进制 |
 | 本机同时连接多个网络 | Python CLI + `--interface` | 指定认证流量使用的源 IP |
 | 修改认证协议或重新编译二进制 | 开发者章节 | 普通使用者不需要阅读 |
 
@@ -107,7 +108,59 @@ python main.py status --portal 172.16.0.46
 python main.py login -u YOUR_USERNAME -p YOUR_PASSWORD --portal 172.16.0.46
 ```
 
-## OpenWrt：路由器
+## OpenWrt：安装 IPK（推荐）
+
+仓库提供三个 OpenWrt 包。当前 `rjeportal` 只面向小米 R3G
+（`ramips/mt7621`、`mipsel_24kc`）：
+
+| 包 | 作用 |
+| --- | --- |
+| `rjeportal` | 认证核心、RSA 加密、status/login/logout、看门狗 |
+| `luci-app-rjeportal` | LuCI 状态页、配置页、登录/登出/看门狗按钮 |
+| `luci-app-nettask` | 通用 Shell 脚本管理（可选，不参与认证） |
+
+用与固件同版本的 ImmortalWrt SDK 构建：
+
+```sh
+sh tools/build-packages.sh /path/to/immortalwrt-sdk
+```
+
+产物在 `build/ipk/`。安装并启用：
+
+```sh
+opkg install rjeportal_*.ipk luci-app-rjeportal_*.ipk
+
+uci set rjeportal.main.enabled='1'
+uci set rjeportal.main.username='学号'
+uci set rjeportal.main.password='密码'
+uci set rjeportal.main.portal_ip='172.16.0.46'
+uci commit rjeportal
+/etc/init.d/rjeportal enable
+/etc/init.d/rjeportal restart
+```
+
+也可以在 LuCI 的“服务 → Ruijie ePortal”里配置，状态页会显示在线状态和看门狗状态。
+
+命令行：
+
+```sh
+rjeportal status            # online / captive / unreachable / unknown
+rjeportal login             # 从 UCI 读取账号密码，不从命令行传参
+rjeportal logout            # 使用登录时保存的 userIndex
+rjeportal watchdog_status
+rjeportal watchdog_start
+rjeportal watchdog_stop
+```
+
+看门狗按 `check_interval` 检查状态，处于 `captive` 时自动登录并再次确认；连续失败
+后按 `failure_cooldown` 冷却。完整安装和真机验证记录见
+[docs/r3g-ondevice-verification.md](./docs/r3g-ondevice-verification.md)。
+
+> 如果同时安装 `luci-app-nettask`，请把它的开机/断网触发保持关闭
+> （`nettask.main.word=0`、`nettask.main.network=0`），避免和 `rjeportal`
+> 的看门狗重复登录。
+
+## OpenWrt：路由器（Shell 最小方式）
 
 Shell 版本适合没有完整 Python 环境的 OpenWrt/ImmortalWrt 路由器。请保留项目的目录结构：
 
@@ -228,8 +281,11 @@ ARMv7 的不同浮点 ABI 不能随意混用。AArch64 的几个文件内容相�
 
 - 旧版 Python/Shell 脚本：[`archived/`](./archived/)
 - OpenWrt 路由器实践记录：[`docs/无限制校园网路由器.md`](./docs/无限制校园网路由器.md)
+- R3G 真机安装与验证：[`docs/r3g-ondevice-verification.md`](./docs/r3g-ondevice-verification.md)
+- NetTask / LuCI 设计背景：[`docs/ruijieeportal-nettask-context.md`](./docs/ruijieeportal-nettask-context.md)
 
-旧脚本仅供参考，日常使用请优先选择根目录 `main.py` 或 `main.sh`。
+`docs/无限制校园网路由器.md` 记录的是早期手工部署方式（仓库 zip + `src/rjeportal.sh`）；
+现在推荐直接安装 `rjeportal` 和 `luci-app-rjeportal` IPK，见上文。旧脚本仅供参考。
 
 ## 参考
 

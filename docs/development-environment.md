@@ -49,10 +49,20 @@ RuijieEportal/
 ├── package/
 │   ├── rjeportal/
 │   └── luci-app-rjeportal/
-├── luci-app-nettask/   # 独立 Git 仓库，主仓库忽略
+├── luci-app-nettask/   # 独立 Git 仓库，主仓库忽略；开发分支 rjeportal-integration
 ├── UA3F/               # 独立 Git 仓库，主仓库忽略
+├── tools/              # build-packages.sh、fake_eportal_lan.py
+├── build/              # 本地构建产物（忽略），IPK 在 build/ipk/
 ├── docs/
 └── dist/
+```
+
+`luci-app-nettask` 的 `rjeportal-integration` 分支已经把包目录扁平化为标准 LuCI
+布局，并补上了 `.gitattributes`。克隆后先确认分支：
+
+```sh
+git -C luci-app-nettask status
+git -C luci-app-nettask log --oneline -1    # 应为 rjeportal-integration 分支
 ```
 
 不要把 `UA3F/` 或 `luci-app-nettask/` 用 `git add -f` 加进主仓库。它们应继续作为独立仓库维护；如果以后需要一条命令克隆全部组件，再评估是否改成 Git submodule。
