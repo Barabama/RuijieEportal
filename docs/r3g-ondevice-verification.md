@@ -148,3 +148,8 @@ logread         -> watchdog started / captive / login succeeded (attempt 1)
   `rjeportal` 包取代；`nettask.main.word`/`network` 已置 0，避免两套机制同时登录。
 - 明文凭据只应存在于 `/etc/config/rjeportal`（权限 600）。本次清理了设备上遗留的
   `word.sh` 与 NetTask 备份文件中包含的明文密码。
+- **尚未在 R3G 上验证的路径**：认证服务器返回 `result != success` 时的失败退避、
+  `unreachable`（STA 未关联）分支，以及 `failure_cooldown` 的实际计时。这些分支只在
+  本地假门户和隔离测试里跑过，真实门户很难稳定复现。
+- 本次 R3G 用的是有线 WAN 上联，量产方案是 STA 上联。STA 上联下的完整安装验证仍待
+  补做。

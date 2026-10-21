@@ -104,6 +104,19 @@ PYTHONDONTWRITEBYTECODE=1 \
 控制）。IPK 在 R3G 上的安装与验证结果见
 [docs/r3g-ondevice-verification.md](./r3g-ondevice-verification.md)。
 
+脚本会先清理 `PATH`。WSL 会把 Windows PATH 混入构建环境，其中的冒号和空格会让
+OpenWrt 的 Makefile 在 `prereq` 阶段报 `multiple target patterns`。
+
+SDK 首次构建还需要下载各依赖源码包。`www.openssl.org` 在本环境很慢，`prereq` 会
+长时间停在 `openssl-3.0.19.tar.gz`；可以先把文件放到 SDK 的 `dl/` 再重试：
+
+```sh
+cd "$SDK/dl"
+curl -fL -o openssl-3.0.19.tar.gz \
+  https://sources.openwrt.org/openssl-3.0.19.tar.gz
+sha256sum openssl-3.0.19.tar.gz
+```
+
 `package/rjeportal` 当前面向 `ramips/mt7621` 和 `mipsel_24kc`。正式 IPK 应在与 R3G 固件版本匹配的 ImmortalWrt SDK 中构建；x86 虚拟机只用于 LuCI 页面和包布局验证，不能替代 R3G 目标包的编译。
 
 ## 凭据和配置
