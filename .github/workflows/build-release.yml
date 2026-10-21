@@ -1,0 +1,196 @@
+name: Build and release RuijieEportal packages
+
+# Tag push builds the router packages and publishes a GitHub Release.
+# Manual runs build the IPKs and upload them as a workflow artifact only.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ruijieeportal-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned SDK, same one used for the R3G verification.
+  SDK_FILE: 'immortalwrt-sdk-24.10.6-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64.tar.zst'
+  SDK_SHA256: '10c4afe9a517193e26a60ee73cf2ac968f534ec9e1e3e06f563c85fbaf0febd6'
+  SDK_URL: 'https://downloads.immortalwrt.org/releases/24.10.6/targets/ramips/mt7621'
+  # Pre-fetched because www.openssl.org is very slow from Actions runners.
+  OPENSSL_FILE: 'openssl-3.0.19.tar.gz'
+  OPENSSL_SHA256: 'fa5a4143b8aae18be53ef2f3caf29a2e0747430b8bc74d32d88335b94ab63072'
+
+jobs:
+  build:
+    name: Build router packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag matches rjeportal version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^PKG_VERSION:=//p' package/rjeportal/Makefile | head -n1)
+          release=$(sed -n 's/^PKG_RELEASE:=//p' package/rjeportal/Makefile | head -n1)
+          full="${version}-r${release}"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "rjeportal: ${version} (release ${release}) -> ${full}"
+          echo "Tag:       ${tag}"
+          # Accept both v0.2.0 and v0.2.0-r5; reject anything else.
+          if [ "$tag" != "$version" ] && [ "$tag" != "$full" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match PKG_VERSION=${version} PKG_RELEASE=${release}."
+            echo "Use v${version} or v${full} after bumping package/rjeportal/Makefile."
+            exit 1
+          fi
+
+      - name: Restore SDK tarball from cache
+        id: sdk-cache
+        uses: actions/cache@v5.1.0
+        with:
+          path: sdk-download
+          key: ${{ env.SDK_FILE }}-${{ env.SDK_SHA256 }}
+
+      - name: Download SDK tarball
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p sdk-download
+          for attempt in 1 2 3; do
+            echo "Downloading ${SDK_FILE} (attempt ${attempt})..."
+            if curl -fL --connect-timeout 20 --max-time 900 --retry 3 --retry-delay 10 \
+                -o sdk-download/sdk.tar.zst "${SDK_URL}/${SDK_FILE}"; then
+              echo "${SDK_SHA256}  sdk-download/sdk.tar.zst" | sha256sum -c -
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::failed to download the ImmortalWrt SDK"
+          exit 1
+
+      - name: Verify SDK archive
+        run: |
+          set -euo pipefail
+          echo "${SDK_SHA256}  sdk-download/sdk.tar.zst" | sha256sum -c -
+
+      - name: Extract SDK
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null 2>&1 || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq zstd
+          }
+          rm -rf sdk
+          mkdir -p sdk
+          tar --zstd -xf sdk-download/sdk.tar.zst -C sdk --strip-components=1
+
+      - name: Install feeds
+        run: |
+          set -euo pipefail
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Pre-fetch OpenSSL source
+        run: |
+          set -euo pipefail
+          mkdir -p sdk/dl
+          curl -fL --connect-timeout 20 --max-time 600 --retry 3 \
+            -o "sdk/dl/${OPENSSL_FILE}" "https://sources.openwrt.org/${OPENSSL_FILE}"
+          echo "${OPENSSL_SHA256}  sdk/dl/${OPENSSL_FILE}" | sha256sum -c -
+          # download.pl consults this cache file before contacting upstream.
+          echo "${OPENSSL_SHA256}" > "sdk/dl/${OPENSSL_FILE}.hash"
+
+      - name: Copy packages into SDK
+        run: |
+          set -euo pipefail
+          rm -rf sdk/package/rjeportal sdk/package/luci-app-rjeportal
+          mkdir -p sdk/package/rjeportal sdk/package/luci-app-rjeportal
+          rsync -a package/rjeportal/ sdk/package/rjeportal/
+          rsync -a package/luci-app-rjeportal/ sdk/package/luci-app-rjeportal/
+
+      - name: Build IPKs
+        run: |
+          set -euo pipefail
+          cd sdk
+          make defconfig
+          make package/rjeportal/compile V=s -j"$(nproc)"
+          make package/luci-app-rjeportal/compile V=s -j"$(nproc)"
+
+      - name: Collect release files
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find sdk/bin/packages -name 'rjeportal_*.ipk' -exec cp {} release/ \;
+          find sdk/bin/packages -name 'luci-app-rjeportal_*.ipk' -exec cp {} release/ \;
+          # Prebuilt encryption binaries for manual router deployments.
+          cp dist/encrypt_* release/
+          test -n "$(ls -A release)"
+          cd release
+          sha256sum *.ipk encrypt_* > sha256sums
+          cat sha256sums
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: ruijieeportal-release
+          path: release/
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          files: |
+            release/*.ipk
+            release/encrypt_*
+            release/sha256sums
+          fail_on_unmatched_files: true
+          body: |
+            ## RuijieEportal ${{ github.ref_name }}
+
+            ### 我该下载哪个？
+
+            | 你的场景 | 需要的文件 |
+            | --- | --- |
+            | OpenWrt / ImmortalWrt 路由器（推荐） | `rjeportal_*.ipk` + `luci-app-rjeportal_*.ipk` |
+            | 路由器手动部署（无 LuCI / 看门狗） | `encrypt_<架构>` + 源码里的 `src/rjeportal.sh` |
+            | Windows / Linux 电脑 | 源码里的 `main.py`，无需下载本页附件 |
+
+            路由器包当前面向 `ramips/mt7621` / `mipsel_24kc`（小米 R3G）。
+            `encrypt_*` 是各架构的手动部署二进制，按 `DISTRIB_ARCH` 选择。
+
+            ### 路由器安装
+
+            ```sh
+            opkg update
+            opkg install rjeportal_*.ipk luci-app-rjeportal_*.ipk
+            ```
+
+            然后在 LuCI 的「服务 → Ruijie ePortal」填写账号，或使用 UCI：
+
+            ```sh
+            uci set rjeportal.main.enabled='1'
+            uci set rjeportal.main.username='学号'
+            uci set rjeportal.main.password='密码'
+            uci set rjeportal.main.portal_ip='172.16.0.46'
+            uci commit rjeportal
+            /etc/init.d/rjeportal enable
+            /etc/init.d/rjeportal restart
+            ```
+
+            `luci-app-nettask` 是独立仓库，单独发布：
+            https://github.com/Barabama/luci-app-nettask/releases
+
+            ### 校验
+
+            ```sh
+            sha256sum -c sha256sums
+            ```

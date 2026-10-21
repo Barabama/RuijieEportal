@@ -30,13 +30,24 @@ fi
 LOG=$SDK/rjeportal-build.log
 DEST=$SDK/package
 
-rm -rf "$DEST/rjeportal" "$DEST/luci-app-rjeportal" "$DEST/luci-app-nettask"
-mkdir -p "$DEST/rjeportal" "$DEST/luci-app-rjeportal" "$DEST/luci-app-nettask"
+# luci-app-nettask is a separate repository and may be absent in a fresh
+# clone of this repository (it is ignored here). Build it only when present.
+PACKAGES="rjeportal luci-app-rjeportal"
+[ -d "$REPO/luci-app-nettask" ] && PACKAGES="$PACKAGES luci-app-nettask"
+
+for pkg in $PACKAGES; do
+    rm -rf "$DEST/$pkg"
+    mkdir -p "$DEST/$pkg"
+done
 
 rsync -a --delete "$REPO/package/rjeportal/" "$DEST/rjeportal/"
 rsync -a --delete "$REPO/package/luci-app-rjeportal/" "$DEST/luci-app-rjeportal/"
-# The nested NetTask repository also holds .git and screenshots.
-rsync -a --delete --exclude .git --exclude png "$REPO/luci-app-nettask/" "$DEST/luci-app-nettask/"
+case " $PACKAGES " in
+    *" luci-app-nettask "*)
+        rsync -a --delete --exclude .git --exclude .github --exclude png \
+            "$REPO/luci-app-nettask/" "$DEST/luci-app-nettask/"
+        ;;
+esac
 
 cd "$SDK"
 cp .config .config.before-rjeportal 2>/dev/null || true
@@ -44,7 +55,7 @@ cp .config .config.before-rjeportal 2>/dev/null || true
 make defconfig >"$LOG.defconfig" 2>&1 || { tail -60 "$LOG.defconfig"; exit 1; }
 grep -E '^CONFIG_TARGET_(ramips|ramips_mt7621)=y' .config
 
-for pkg in rjeportal luci-app-rjeportal luci-app-nettask; do
+for pkg in $PACKAGES; do
     make "package/$pkg/compile" V=s -j"$(nproc)" >"$LOG.$pkg" 2>&1 || {
         echo "=== FAILED: $pkg ==="
         tail -80 "$LOG.$pkg"
@@ -54,7 +65,7 @@ done
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
-for pkg in rjeportal luci-app-rjeportal luci-app-nettask; do
+for pkg in $PACKAGES; do
     find bin/packages -name "${pkg}_*.ipk" -exec cp {} "$OUT"/ \;
 done
 

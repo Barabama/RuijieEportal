@@ -129,6 +129,18 @@ sha256sum openssl-3.0.19.tar.gz
 
 `package/rjeportal` 当前面向 `ramips/mt7621` 和 `mipsel_24kc`。正式 IPK 应在与 R3G 固件版本匹配的 ImmortalWrt SDK 中构建；x86 虚拟机只用于 LuCI 页面和包布局验证，不能替代 R3G 目标包的编译。
 
+## 发布
+
+主仓库的 [`.github/workflows/build-release.yml`](../.github/workflows/build-release.yml)
+在推送 `v*` tag 时构建 `rjeportal` 和 `luci-app-rjeportal`，并把两个 IPK、
+`dist/encrypt_*` 和 `sha256sums` 附到 GitHub Release。
+
+tag 必须等于 `v<rjeportal 的 PKG_VERSION>` 或
+`v<PKG_VERSION>-r<PKG_RELEASE>`，例如 `v0.2.0` 或 `v0.2.0-r5`。版本号以
+`package/rjeportal/Makefile` 为准，`luci-app-rjeportal` 有自己的包版本。
+
+`luci-app-nettask` 不在主仓库内，由它自己的仓库和 workflow 发布。
+
 ## 凭据和配置
 
 - 真实账号、密码、MAC、Wi-Fi 信息只保存在设备本地。

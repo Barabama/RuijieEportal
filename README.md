@@ -25,6 +25,21 @@ cd RuijieEportal
 | 本机同时连接多个网络 | Python CLI + `--interface` | 指定认证流量使用的源 IP |
 | 修改认证协议或重新编译二进制 | 开发者章节 | 普通使用者不需要阅读 |
 
+### 直接下载
+
+不想自己构建时，从 [Releases](https://github.com/Barabama/RuijieEportal/releases)
+下载对应的文件：
+
+| 你的场景 | 下载 |
+| --- | --- |
+| OpenWrt / ImmortalWrt 路由器（推荐） | `rjeportal_*.ipk` + `luci-app-rjeportal_*.ipk` |
+| 路由器手动部署（无 LuCI / 看门狗） | `encrypt_<架构>` + 源码里的 `src/rjeportal.sh` |
+| Windows / Linux 电脑 | 源码里的 `main.py`，不需要下载 Release 附件 |
+
+`luci-app-nettask` 是独立仓库，在
+[Barabama/luci-app-nettask](https://github.com/Barabama/luci-app-nettask/releases)
+单独发布。
+
 以下命令默认认证门户地址为 `172.16.0.46`。如果你的学校使用其他地址，可以通过参数或环境变量覆盖。
 
 ## 使用前准备
